@@ -32,11 +32,13 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
     problemsEncountered: '',
     actionTaken: '',
     remarks: '',
+    narrative: '',
     commentsAndSuggestions: ''
   });
 
   const handleGenerate = async () => {
-    if (!process.env.GEMINI_API_KEY) {
+    const apiKey = process.env.GEMINI_API_KEY || '';
+    if (!apiKey) {
       setError('Gemini API Key is missing. Please configure it in your environment.');
       return;
     }
@@ -45,7 +47,8 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
     setError('');
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: apiKey! });
       
       const start = parseISO(startDate);
       const end = parseISO(endDate);
@@ -65,8 +68,7 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
           accomplishment: e.accomplishment, 
           problemsEncountered: e.problemsEncountered,
           actionTaken: e.actionTaken
-        })), 
-        null, 2
+        }))
       );
 
       const prompt = `You are an assistant that generates a short and simple Weekly OJT (On-the-Job Training) journal report based on a student's daily entries.
@@ -78,17 +80,19 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
       
       Task:
       1. Analyze the daily entries provided.
-      2. Write a short, simple, and concise "Accomplishment" summary combining the main tasks completed.
-      3. Write a short "Problems Encountered" summary of the week's challenges. If none, say "None".
-      4. Write a short "Action Taken" summary. If none, say "N/A".
-      5. Provide an empty string "" for "remarks" unless there is something highly specific to remark.
-      6. Write a brief "Comments & Suggestions" section (e.g., feedback or self-improvement notes). Keep it to 1 sentence.
-      7. IMPORTANT: Do not include or mention any days marked as "Holiday", "Absent", or entries with 0 working hours in your task summaries.
+      2. Write a short, simple, and concise "Accomplishment" summary (bullet points or brief list) of tasks.
+      3. Write a "Narrative Summary/Reflection" (paragraph form) summarizing the week's experience and what was learned.
+      4. Write a short "Problems Encountered" summary BASED ON the accomplishments. If none are explicitly stated in the entries, deduce or invent a minor, realistic problem related to the tasks (e.g., software bug, minor delay, unfamiliarity with a process). Do NOT say "None".
+      5. Write a short "Action Taken" summary describing how the problem was solved. Do NOT say "N/A".
+      6. Provide an empty string "" for "remarks" unless there is something highly specific to remark.
+      7. Write a brief "Comments & Suggestions" section.
+      8. STYLE REGULATION: USE VERY SIMPLE AND BASIC ENGLISH WORDS in all sections. Do NOT use complicated words, big vocabulary or formal corporate jargon. Keep it natural and easy to understand.
       
-      Return ONLY a valid JSON object. Do not include markdown formatting.
+      Return ONLY a valid JSON object.
       
       {
         "accomplishment": "string",
+        "narrative": "string (The reflection paragraph)",
         "problemsEncountered": "string",
         "actionTaken": "string",
         "remarks": "string",
@@ -96,17 +100,18 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
       }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
-          responseMimeType: "application/json",
+          responseMimeType: "application/json"
         }
       });
 
       if (response.text) {
-        const parsed = JSON.parse(response.text);
+        const parsed = JSON.parse(response.text.replace(/```json/g, '').replace(/```/g, '').trim());
         setGeneratedReport({
-          accomplishment: parsed.accomplishment || parsed.narrative || '',
+          accomplishment: parsed.accomplishment || '',
+          narrative: parsed.narrative || parsed.reflection || '',
           problemsEncountered: parsed.problemsEncountered || '',
           actionTaken: parsed.actionTaken || '',
           remarks: parsed.remarks || '',
@@ -132,6 +137,7 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
       problemsEncountered: generatedReport.problemsEncountered,
       actionTaken: generatedReport.actionTaken,
       remarks: generatedReport.remarks,
+      narrative: generatedReport.narrative,
       commentsAndSuggestions: generatedReport.commentsAndSuggestions
     });
     onClose();
@@ -143,6 +149,7 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
         problemsEncountered: '',
         actionTaken: '',
         remarks: '',
+        narrative: '',
         commentsAndSuggestions: '' 
       });
     }, 300);
@@ -230,6 +237,15 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
                     className="min-h-[100px] leading-relaxed"
                     value={generatedReport.accomplishment}
                     onChange={(e) => setGeneratedReport({...generatedReport, accomplishment: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Weekly Narrative / Reflection</Label>
+                  <Textarea 
+                    className="min-h-[120px] leading-relaxed"
+                    placeholder="Short paragraph summarizing the week..."
+                    value={generatedReport.narrative}
+                    onChange={(e) => setGeneratedReport({...generatedReport, narrative: e.target.value})}
                   />
                 </div>
                 <div className="space-y-2">

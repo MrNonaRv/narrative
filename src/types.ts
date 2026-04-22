@@ -8,6 +8,15 @@ export interface UserProfile {
   address: string;
   requiredHours: number;
   facilitator: string;
+  introText?: string;
+  competenciesText?: string;
+  learningsText?: string;
+  impactText?: string;
+  conclusionText?: string;
+  dedicationText?: string;
+  certificateImageUrl?: string;
+  signatureImageUrl?: string;
+  documentationImages?: { id: string; url: string; caption?: string }[];
 }
 
 export interface DailyEntry {
@@ -36,11 +45,25 @@ export interface WeeklyReport {
 export interface MonthlyReport {
   id: string;
   month: string; // YYYY-MM
-  narrative: string;
+  narrative?: string; // Kept for legacy compatibility
+  accomplishment?: string;
+  problemsEncountered?: string;
+  actionTaken?: string;
+  remarks?: string;
   commentsAndSuggestions: string;
 }
 
+export interface SavedAccount {
+  id: string;
+  profile: UserProfile;
+  entries: DailyEntry[];
+  weeklyReports: WeeklyReport[];
+  monthlyReports: MonthlyReport[];
+}
+
 export interface AppState {
+  currentAccountId: string;
+  savedAccounts: SavedAccount[];
   profile: UserProfile;
   entries: DailyEntry[];
   weeklyReports: WeeklyReport[];
@@ -55,4 +78,14 @@ export interface AppState {
   addMonthlyReport: (report: Omit<MonthlyReport, 'id'>) => void;
   updateMonthlyReport: (id: string, report: Partial<MonthlyReport>) => void;
   deleteMonthlyReport: (id: string) => void;
+  bulkUpdateEntries: (updatedEntries: DailyEntry[]) => void;
+  bulkUpdateWeeklyReports: (updatedReports: WeeklyReport[]) => void;
+  bulkUpdateMonthlyReports: (updatedReports: MonthlyReport[]) => void;
+  clearAllData: () => void;
+  
+  // Account Management
+  saveCurrentAccount: () => void;
+  switchAccount: (accountId: string) => void;
+  createNewAccount: (studentName?: string) => void;
+  deleteAccount: (accountId: string) => void;
 }

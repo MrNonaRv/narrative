@@ -6,16 +6,21 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Label } from '@/components/ui/Label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { format, parseISO } from 'date-fns';
-import { Plus, Pencil, Trash2, Sparkles, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Sparkles, Upload, Download, Loader2 } from 'lucide-react';
 import AutoGenerateModal from '@/components/AutoGenerateModal';
 import * as XLSX from 'xlsx';
+import BulkReviseEntriesModal from '@/components/BulkReviseEntriesModal';
 
 export default function DailyEntries() {
-  const { entries, addEntry, updateEntry, deleteEntry } = useAppStore();
+  const { entries, addEntry, updateEntry, deleteEntry, bulkUpdateEntries, profile } = useAppStore();
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [isAutoModalOpen, setIsAutoModalOpen] = useState(false);
+  const [isBulkReviseOpen, setIsBulkReviseOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isBulkGeneratingProblems, setIsBulkGeneratingProblems] = useState(false);
+  const [isGeneratingProblems, setIsGeneratingProblems] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   
   const [formData, setFormData] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -178,16 +183,158 @@ export default function DailyEntries() {
     XLSX.writeFile(wb, 'OJT_Daily_Entries_Template.xlsx');
   };
 
+  const handleExportExcel = () => {
+    if (entries.length === 0) {
+      alert("No data to export.");
+      return;
+    }
+
+    const exportData = [...entries]
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(entry => ({
+        'Date': entry.date,
+        'Accomplishment': entry.accomplishment,
+        'Working Hours': entry.workingHours,
+        'Problems Encountered': entry.problemsEncountered || '',
+        'Action Taken': entry.actionTaken || '',
+        'Remarks': entry.remarks || ''
+      }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Daily Entries');
+    XLSX.writeFile(wb, `OJT_Daily_Entries_Backup_${(profile?.name || 'Student').replace(/\s+/g, '_')}.xlsx`);
+  };
+
+  const handleBulkFillMissingProblems = async () => {
+    const isMissing = (text: string | undefined) => {
+      if (!text) return true;
+      const lower = text.trim().toLowerCase();
+      // Expanded missing check
+      return lower === '' || lower === 'none' || lower === 'n/a' || lower === 'na' || lower === '.' || lower === '-' || lower === '???';
+    };
+
+    const entriesMissingProblems = entries.filter(
+      r => {
+        const hasAccomplishment = r.accomplishment && r.accomplishment.trim().length > 0;
+        return hasAccomplishment && (isMissing(r.problemsEncountered) || isMissing(r.actionTaken));
+      }
+    );
+
+    if (entriesMissingProblems.length === 0) {
+      alert("All daily entries already have Problems Encountered and Actions Taken!");
+      return;
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || '';
+    if (!apiKey) {
+      alert("Gemini API Key is missing. Check your settings.");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to let AI auto-fill missing problems for ${entriesMissingProblems.length} daily entries? This might take a few minutes.`)) {
+      return;
+    }
+
+    setIsBulkGeneratingProblems(true);
+    setBulkProgress({ current: 0, total: entriesMissingProblems.length });
+    const updatedEntriesList: any[] = [];
+
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: apiKey! });
+      const { generateContentWithRetry } = await import('@/lib/gemini');
+
+      const cleanJson = (text: string) => {
+        try {
+          const cleaned = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
+          return JSON.parse(cleaned);
+        } catch (e) {
+          const match = text.match(/\{[\s\S]*\}/);
+          if (match) return JSON.parse(match[0]);
+          return {};
+        }
+      };
+      
+      for (let i = 0; i < entriesMissingProblems.length; i++) {
+        const entry = entriesMissingProblems[i];
+        setBulkProgress({ current: i + 1, total: entriesMissingProblems.length });
+        const prompt = `Based on the following daily OJT accomplishment, generate a plausible "Problem Encountered" and the "Action Taken" to resolve it. Keep them brief and realistic for an internship. Use VERY SIMPLE, EASY-TO-UNDERSTAND English words. Do not use complicated words or fancy corporate jargon. If the accomplishment doesn't naturally suggest a problem, invent a minor typical one (e.g., software issue, confusion, clarification needed).
+
+Accomplishment: "${entry.accomplishment}"
+
+Return strictly in this JSON format without markdown:
+{
+  "problemsEncountered": "description of the problem...",
+  "actionTaken": "how it was resolved..."
+}`;
+        
+        try {
+          const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
+          
+          if (response?.text) {
+            const parsed = cleanJson(response.text);
+            
+            if (parsed.problemsEncountered || parsed.actionTaken || parsed['Problem Encountered']) {
+              updatedEntriesList.push({
+                ...entry,
+                problemsEncountered: parsed.problemsEncountered || parsed['Problem Encountered'] || parsed.problem || '',
+                actionTaken: parsed.actionTaken || parsed['Action Taken'] || parsed.action || ''
+              });
+            }
+          }
+        } catch (err) {
+          console.error(`AI generation failed for ${entry.date}:`, err);
+        }
+        
+        // Wait 4 seconds between calls to respect Gemini free tier limits (15 RPM)
+        await new Promise(res => setTimeout(res, 4000));
+      }
+      
+      if (updatedEntriesList.length > 0) {
+        bulkUpdateEntries(updatedEntriesList);
+        alert(`Successfully filled in problems for ${updatedEntriesList.length} daily entries!`);
+      } else {
+        alert("Could not generate any updates. Please check your internet connection.");
+      }
+    } catch (err) {
+      console.error("Bulk Generation Critical Error:", err);
+      alert("An error occurred during bulk generation.");
+    } finally {
+      setIsBulkGeneratingProblems(false);
+    }
+  };
+
   const sortedEntries = [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   return (
     <div className="space-y-6">
+      {isBulkGeneratingProblems && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm text-white">
+          <Loader2 className="w-12 h-12 mb-4 animate-spin text-purple-400" />
+          <h3 className="text-2xl font-bold mb-2">Auto-filling Problems (AI)</h3>
+          <p className="text-lg opacity-90 mb-1">
+            Analyzing accomplishments and generating plausible problems...
+          </p>
+          <p className="text-md font-mono bg-black/40 px-4 py-1 rounded-full mt-2">
+            Progress: {bulkProgress.current} / {bulkProgress.total} reports
+          </p>
+          <p className="text-sm opacity-70 mt-4 max-w-sm text-center">
+            This takes about 4 seconds per report to ensure high-quality AI responses and respect rate limits. Please do not close this tab.
+          </p>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Daily Entries</h2>
           <p className="text-muted-foreground">Log your daily accomplishments and challenges.</p>
         </div>
         <div className="flex space-x-2">
+          <Button variant="ghost" onClick={handleExportExcel} className="hidden sm:flex items-center gap-2 text-primary hover:text-primary/80">
+            <Download className="h-4 w-4" />
+            Export Data
+          </Button>
           <Button variant="ghost" onClick={downloadTemplate} className="text-xs text-muted-foreground hover:text-primary">
             Download Template
           </Button>
@@ -208,6 +355,24 @@ export default function DailyEntries() {
             <Sparkles className="w-4 h-4 mr-2" />
             Auto-Generate from Weekly
           </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => setIsBulkReviseOpen(true)} 
+            className="border-primary text-primary hover:bg-primary/5"
+            disabled={entries.length === 0}
+          >
+            <Sparkles className="w-4 h-4 mr-2" />
+            Revise All (AI)
+          </Button>
+          <Button 
+            onClick={handleBulkFillMissingProblems} 
+            variant="outline" 
+            className="text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100 disabled:opacity-50"
+            disabled={isBulkGeneratingProblems || entries.length === 0}
+          >
+            {isBulkGeneratingProblems ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+            {isBulkGeneratingProblems ? `Filling... (${bulkProgress.current}/${bulkProgress.total})` : 'Auto-fill All Missing Problems'}
+          </Button>
         </div>
       </div>
 
@@ -220,7 +385,33 @@ export default function DailyEntries() {
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="date">Date</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="date">Date</Label>
+                    <div className="flex gap-1.5">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-6 text-[10px] px-2 rounded-full"
+                        onClick={() => {
+                          const dt = new Date();
+                          dt.setDate(dt.getDate() - 1);
+                          setFormData({...formData, date: format(dt, 'yyyy-MM-dd')});
+                        }}
+                      >
+                        Yesterday
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-6 text-[10px] px-2 rounded-full"
+                        onClick={() => setFormData({...formData, date: format(new Date(), 'yyyy-MM-dd')})}
+                      >
+                        Today
+                      </Button>
+                    </div>
+                  </div>
                   <Input 
                     id="date" 
                     type="date" 
@@ -260,7 +451,10 @@ export default function DailyEntries() {
                     step="0.5" 
                     required
                     value={formData.workingHours}
-                    onChange={(e) => setFormData({...formData, workingHours: parseFloat(e.target.value)})}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setFormData({...formData, workingHours: isNaN(val) ? 0 : val});
+                    }}
                     disabled={formData.status !== 'present'}
                   />
                 </div>
@@ -277,7 +471,64 @@ export default function DailyEntries() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="problems">Problems Encountered</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="problems">Problems Encountered</Label>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-7 text-[10px] text-purple-600 border-purple-200 bg-purple-50 hover:bg-purple-100"
+                      disabled={isGeneratingProblems}
+                      onClick={async () => {
+                        if (!formData.accomplishment.trim()) {
+                          alert("Please write your 'Daily Accomplishment' first so the AI knows what to base the problems on.");
+                          return;
+                        }
+                        const apiKey = process.env.GEMINI_API_KEY || '';
+                        if (!apiKey) {
+                          alert("Gemini API Key is missing.");
+                          return;
+                        }
+                        setIsGeneratingProblems(true);
+                        try {
+                          const ai = new (await import('@google/genai')).GoogleGenAI({ apiKey: apiKey! });
+                          const prompt = `Based on the following daily OJT accomplishment, generate a plausible "Problem Encountered" and the "Action Taken" to resolve it. Keep them brief and realistic for an internship. Use VERY SIMPLE, EASY-TO-UNDERSTAND English words. Do not use complicated words or fancy corporate jargon. If the accomplishment doesn't naturally suggest a problem, invent a minor typical one (e.g., software issue, confusion, clarification needed).
+
+Accomplishment: "${formData.accomplishment}"
+
+Return strictly in this JSON format without markdown:
+{
+  "problemsEncountered": "description of the problem...",
+  "actionTaken": "how it was resolved..."
+}`;
+                          const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt, config: { responseMimeType: "application/json" } });
+                          if (response.text) {
+                            let parsed: any = {};
+                            try {
+                              const cleanedText = response.text.replace(/```json/gi, '').replace(/```/gi, '').trim();
+                              parsed = JSON.parse(cleanedText);
+                            } catch(e) {
+                              const match = response.text.match(/\{[\s\S]*\}/);
+                              if (match) parsed = JSON.parse(match[0]);
+                            }
+                            setFormData(prev => ({
+                              ...prev,
+                              problemsEncountered: parsed.problemsEncountered || parsed['Problem Encountered'] || parsed.problem || '',
+                              actionTaken: parsed.actionTaken || parsed['Action Taken'] || parsed.action || ''
+                            }));
+                          }
+                        } catch (err) {
+                          console.error(err);
+                          alert("Failed to auto-generate.");
+                        } finally {
+                          setIsGeneratingProblems(false);
+                        }
+                      }}
+                    >
+                      {isGeneratingProblems ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                      {isGeneratingProblems ? 'Generating...' : 'Auto-fill (AI)'}
+                    </Button>
+                  </div>
                   <Textarea 
                     id="problems" 
                     placeholder="Any issues or challenges?"
@@ -392,6 +643,11 @@ export default function DailyEntries() {
       <AutoGenerateModal 
         isOpen={isAutoModalOpen} 
         onClose={() => setIsAutoModalOpen(false)} 
+      />
+
+      <BulkReviseEntriesModal
+        isOpen={isBulkReviseOpen}
+        onClose={() => setIsBulkReviseOpen(false)}
       />
     </div>
   );

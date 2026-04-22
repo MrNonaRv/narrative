@@ -8,7 +8,7 @@ export default function Dashboard() {
   const { profile, entries } = useAppStore();
 
   const totalHours = entries.reduce((sum, entry) => sum + entry.workingHours, 0);
-  const progressPercentage = Math.min(100, Math.round((totalHours / profile.requiredHours) * 100)) || 0;
+  const progressPercentage = Math.min(100, Math.round((totalHours / (profile?.requiredHours || 486)) * 100)) || 0;
 
   // Group entries by week for the chart
   const chartData = React.useMemo(() => {

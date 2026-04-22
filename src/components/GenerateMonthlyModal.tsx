@@ -31,7 +31,8 @@ export default function GenerateMonthlyModal({ isOpen, onClose }: GenerateMonthl
   });
 
   const handleGenerate = async () => {
-    if (!process.env.GEMINI_API_KEY) {
+    const apiKey = process.env.GEMINI_API_KEY || '';
+    if (!apiKey) {
       setError('Gemini API Key is missing. Please configure it in your environment.');
       return;
     }
@@ -40,7 +41,8 @@ export default function GenerateMonthlyModal({ isOpen, onClose }: GenerateMonthl
     setError('');
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: apiKey! });
       
       const start = startOfMonth(parseISO(`${month}-01`));
       const end = endOfMonth(start);
@@ -60,8 +62,7 @@ export default function GenerateMonthlyModal({ isOpen, onClose }: GenerateMonthl
           accomplishment: e.accomplishment, 
           problemsEncountered: e.problemsEncountered,
           actionTaken: e.actionTaken
-        })), 
-        null, 2
+        }))
       );
 
       const prompt = `You are an assistant that generates a short and simple Monthly OJT (On-the-Job Training) narrative report based on a student's daily entries.
@@ -76,6 +77,7 @@ export default function GenerateMonthlyModal({ isOpen, onClose }: GenerateMonthl
       2. Write a short, simple, and concise "Monthly Narrative / Reflection" summarizing the main accomplishments, learnings, and challenges for the entire month. Keep it brief (2-3 short paragraphs maximum).
       3. Write a brief "Comments & Suggestions" section (e.g., feedback or self-improvement notes). Keep it to 1-2 sentences.
       4. IMPORTANT: Do not include or mention any days marked as "Holiday", "Absent", or entries with 0 working hours in your narrative summarizing the accomplishments. Focus only on actual work done.
+      5. STYLE: Use VERY SIMPLE AND BASIC ENGLISH WORDS. Do NOT use complicated words, big vocabulary or formal corporate jargon. Keep it natural and easy to understand.
       
       Return ONLY a valid JSON object. Do not include markdown formatting like \`\`\`json.
       
@@ -85,15 +87,12 @@ export default function GenerateMonthlyModal({ isOpen, onClose }: GenerateMonthl
       }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-        }
+        model: 'gemini-3-flash-preview',
+        contents: prompt
       });
 
       if (response.text) {
-        const parsed = JSON.parse(response.text);
+        const parsed = JSON.parse(response.text.replace(/```json/g, '').replace(/```/g, '').trim());
         setGeneratedReport({
           narrative: parsed.narrative || '',
           commentsAndSuggestions: parsed.commentsAndSuggestions || ''

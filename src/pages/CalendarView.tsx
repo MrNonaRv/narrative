@@ -19,18 +19,44 @@ import {
   subMonths,
   isToday
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, X, Clock, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Clock, Trash2, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import * as XLSX from 'xlsx';
 
 export default function CalendarView() {
-  const { entries, addEntry, updateEntry, deleteEntry } = useAppStore();
+  const { entries, addEntry, updateEntry, deleteEntry, profile } = useAppStore();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
+  const handleExportExcel = () => {
+    if (entries.length === 0) {
+      alert("No data to export.");
+      return;
+    }
+
+    // Prepare data in the same format as the import template
+    const exportData = [...entries]
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(entry => ({
+        'Date': entry.date,
+        'Accomplishment': entry.accomplishment,
+        'Working Hours': entry.workingHours,
+        'Problems Encountered': entry.problemsEncountered || '',
+        'Action Taken': entry.actionTaken || '',
+        'Remarks': entry.remarks || ''
+      }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Daily Entries');
+    XLSX.writeFile(wb, `OJT_Daily_Entries_Backup_${(profile?.name || 'Student').replace(/\s+/g, '_')}.xlsx`);
+  };
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState<string | null>(null);
+  const [entryToDelete, setEntryToDelete] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
     status: 'present' as 'present' | 'holiday' | 'absent',
@@ -99,10 +125,15 @@ export default function CalendarView() {
 
   const handleDelete = () => {
     if (currentId) {
-      if (confirm('Are you sure you want to delete this entry?')) {
-        deleteEntry(currentId);
-        setIsModalOpen(false);
-      }
+      setEntryToDelete(currentId);
+    }
+  };
+
+  const confirmDelete = () => {
+    if (entryToDelete) {
+      deleteEntry(entryToDelete);
+      setEntryToDelete(null);
+      setIsModalOpen(false);
     }
   };
 
@@ -113,7 +144,12 @@ export default function CalendarView() {
           <h2 className="text-2xl font-bold tracking-tight">Calendar</h2>
           <p className="text-muted-foreground">View and manage your daily notes visually.</p>
         </div>
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2">
+          <Button variant="outline" onClick={handleExportExcel} className="hidden sm:flex items-center gap-2">
+            <Download className="h-4 w-4" />
+            Export to Excel
+          </Button>
+          <div className="flex items-center space-x-4 ml-4">
           <Button variant="outline" onClick={prevMonth} size="icon">
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -125,6 +161,7 @@ export default function CalendarView() {
           </Button>
         </div>
       </div>
+    </div>
 
       <Card className="flex-1 flex flex-col min-h-0 bg-white shadow-sm border border-border">
         <div className="grid grid-cols-7 border-b border-border bg-muted/40 shrink-0 rounded-t-xl">
@@ -148,20 +185,20 @@ export default function CalendarView() {
                 onClick={() => handleDayClick(day)}
                 className={cn(
                   "min-h-[100px] border-b border-r border-border p-2 cursor-pointer transition-colors relative hover:bg-muted/50",
-                  !isSelectedMonth && "bg-muted/20 text-muted-foreground/50",
+                  !isSelectedMonth && "bg-muted/20 text-muted-foreground/50 opacity-40 hover:opacity-100",
                   isWeekend && "bg-gray-50/50",
                   (i + 1) % 7 === 0 && "border-r-0"
                 )}
               >
-                <div className="flex justify-between items-start mb-1">
+                <div className="flex justify-between items-start mb-1 gap-1">
                   <span className={cn(
-                    "text-sm font-medium w-7 h-7 flex items-center justify-center rounded-full",
+                    "text-sm font-medium h-7 flex items-center justify-center rounded-full whitespace-nowrap px-1.5",
                     isTodayDate ? "bg-primary text-primary-foreground" : ""
                   )}>
-                    {format(day, 'd')}
+                    {(!isSelectedMonth || day.getDate() === 1) ? format(day, 'MMM d') : format(day, 'd')}
                   </span>
                   {entry && (
-                    <div className="flex gap-1 flex-col items-end">
+                    <div className="flex gap-1 flex-col items-end shrink-0">
                       {(entry.status === 'holiday' || entry.status === 'absent') && (
                         <span className={cn(
                           "text-[10px] font-semibold px-1.5 py-0.5 rounded",
@@ -203,12 +240,48 @@ export default function CalendarView() {
             </CardHeader>
             <CardContent className="p-6">
               <form onSubmit={handleSave} className="space-y-4">
-                <div className="space-y-2 hidden">
-                  <Label>Date</Label>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="calendarDate">Date</Label>
+                    <div className="flex gap-1.5">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-6 text-[10px] px-2 rounded-full"
+                        onClick={() => {
+                          const dt = new Date();
+                          dt.setDate(dt.getDate() - 1);
+                          setFormData({...formData, date: format(dt, 'yyyy-MM-dd')});
+                          setSelectedDate(dt);
+                        }}
+                      >
+                        Yesterday
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-6 text-[10px] px-2 rounded-full"
+                        onClick={() => {
+                          const dt = new Date();
+                          setFormData({...formData, date: format(dt, 'yyyy-MM-dd')});
+                          setSelectedDate(dt);
+                        }}
+                      >
+                        Today
+                      </Button>
+                    </div>
+                  </div>
                   <Input 
+                    id="calendarDate"
                     type="date" 
                     value={formData.date}
-                    onChange={(e) => setFormData({...formData, date: e.target.value})}
+                    onChange={(e) => {
+                      const newDateStr = e.target.value;
+                      setFormData({...formData, date: newDateStr});
+                      setSelectedDate(parseISO(newDateStr));
+                    }}
                   />
                 </div>
 
@@ -240,7 +313,10 @@ export default function CalendarView() {
                     step="0.5" 
                     required
                     value={formData.workingHours}
-                    onChange={(e) => setFormData({...formData, workingHours: parseFloat(e.target.value)})}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setFormData({...formData, workingHours: isNaN(val) ? 0 : val});
+                    }}
                     disabled={formData.status !== 'present'}
                   />
                 </div>
@@ -294,6 +370,36 @@ export default function CalendarView() {
                   </div>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {entryToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <CardHeader className="border-b border-border bg-muted/50 rounded-t-xl py-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-lg text-red-600 flex items-center gap-2">
+                <Trash2 className="w-5 h-5" />
+                Delete Entry
+              </CardTitle>
+              <Button variant="ghost" size="icon" onClick={() => setEntryToDelete(null)} className="h-8 w-8 rounded-full">
+                <X className="w-4 h-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="p-6 space-y-4">
+              <p className="text-sm">
+                Are you sure you want to delete this log entry? This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setEntryToDelete(null)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={confirmDelete}>
+                  Delete Forever
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>

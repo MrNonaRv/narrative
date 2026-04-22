@@ -2,9 +2,11 @@ import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, BookOpen, Calendar, Settings, FileText, TrendingUp, CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAppStore } from '@/store';
 
 export default function Layout() {
   const location = useLocation();
+  const { profile } = useAppStore();
 
   const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -45,8 +47,12 @@ export default function Layout() {
           })}
         </nav>
         <div className="flex items-center gap-3 bg-card px-4 py-1.5 rounded-full border border-border">
-            <div className="w-7 h-7 bg-gray-200 rounded-full"></div>
-            <span className="font-medium text-sm text-foreground">Student</span>
+            <div className="w-7 h-7 bg-primary text-primary-foreground flex items-center justify-center font-bold rounded-full overflow-hidden shrink-0">
+              {profile?.name ? profile.name.charAt(0).toUpperCase() : 'S'}
+            </div>
+            <span className="font-medium text-sm text-foreground truncate max-w-[150px]">
+              {profile?.name || 'Student'}
+            </span>
         </div>
       </header>
 

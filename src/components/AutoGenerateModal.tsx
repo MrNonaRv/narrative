@@ -45,7 +45,8 @@ export default function AutoGenerateModal({ isOpen, onClose }: AutoGenerateModal
       setError('Please provide a weekly narrative to base the daily entries on.');
       return;
     }
-    if (!process.env.GEMINI_API_KEY) {
+    const apiKey = process.env.GEMINI_API_KEY || '';
+    if (!apiKey) {
       setError('Gemini API Key is missing. Please configure it in your environment.');
       return;
     }
@@ -54,7 +55,8 @@ export default function AutoGenerateModal({ isOpen, onClose }: AutoGenerateModal
     setError('');
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: apiKey! });
       
       const start = parseISO(weekStartDate);
       const end = addDays(start, 6);
@@ -81,6 +83,7 @@ export default function AutoGenerateModal({ isOpen, onClose }: AutoGenerateModal
       3. If there are no previously logged entries, generate all 5 daily entries (Monday to Friday).
       4. If there are existing entries, only generate entries for the missing days, ensuring the new accomplishments align with the weekly summary but don't duplicate what's already in the existing entries.
       5. IMPORTANT: Do not generate any entries for days strictly described as "Holiday" or "Absent" in the weekly narrative.
+      6. STYLE: Use VERY SIMPLE AND BASIC ENGLISH WORDS. Do NOT use complicated words, big vocabulary or formal corporate jargon. Keep it natural and easy to understand.
       
       Return ONLY a valid JSON array of objects representing the NEW daily entries to be added. Do not include markdown formatting like \`\`\`json.
       
@@ -96,15 +99,12 @@ export default function AutoGenerateModal({ isOpen, onClose }: AutoGenerateModal
       ]`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-        }
+        model: 'gemini-3-flash-preview',
+        contents: prompt
       });
 
       if (response.text) {
-        const parsed = JSON.parse(response.text);
+        const parsed = JSON.parse(response.text.replace(/```json/g, '').replace(/```/g, '').trim());
         setGeneratedEntries(parsed);
         setStep(2);
       } else {

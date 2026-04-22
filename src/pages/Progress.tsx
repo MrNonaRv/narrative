@@ -33,7 +33,7 @@ export default function Progress() {
       // Calculate starting cumulative hours (hours before startDate)
       let cumulative = entries
         .filter(e => e.date < startDate)
-        .reduce((sum, e) => sum + e.workingHours, 0);
+        .reduce((sum, e) => sum + (Number(e.workingHours) || 0), 0);
 
       const weeklyMap = new Map<string, number>();
       const dowMap = new Map<number, { total: number; count: number }>();
@@ -42,7 +42,7 @@ export default function Progress() {
       const daily = days.map(day => {
         const dateStr = format(day, 'yyyy-MM-dd');
         const entry = entries.find(e => e.date === dateStr);
-        const hours = entry ? entry.workingHours : 0;
+        const hours = entry ? (Number(entry.workingHours) || 0) : 0;
 
         cumulative += hours;
 
