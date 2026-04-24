@@ -9,11 +9,15 @@ import { Printer, FileText, Sparkles, Loader2, Download, Edit3, Image as ImageIc
 import { GoogleGenAI } from '@google/genai';
 import html2pdf from 'html2pdf.js';
 import NarrativeReviseModal from '@/components/NarrativeReviseModal';
+import { NarrativeReportTemplate } from '@/components/export/NarrativeReportTemplate';
+import { WeeklyJournalTemplate } from '@/components/export/WeeklyJournalTemplate';
+import { MonthlyJournalTemplate } from '@/components/export/MonthlyJournalTemplate';
+import { InternEvaluationTemplate } from '@/components/export/InternEvaluationTemplate';
 
 export default function Export() {
-  const { profile, setProfile, entries, weeklyReports, monthlyReports, addWeeklyReport, addMonthlyReport, updateWeeklyReport, updateMonthlyReport } = useAppStore();
+  const { profile, setProfile, entries, weeklyReports, monthlyReports, addWeeklyReport, addMonthlyReport, updateWeeklyReport, updateMonthlyReport, evaluationData, setEvaluationData } = useAppStore();
   const componentRef = useRef<HTMLDivElement>(null);
-  const [reportType, setReportType] = useState<'narrative' | 'weekly' | 'monthly'>('narrative');
+  const [reportType, setReportType] = useState<'narrative' | 'weekly' | 'monthly' | 'evaluation'>('narrative');
   const [isGenerating, setIsGenerating] = useState(false);
   const [zoomValue, setZoomValue] = useState(0.8);
   const [isNarrativeModalOpen, setIsNarrativeModalOpen] = useState(false);
@@ -25,7 +29,7 @@ export default function Export() {
 
   const handleExportPDF = () => {
     const element = componentRef.current;
-    if (!element) return;
+    if (!element || !profile) return;
 
     // Clone the element to avoid modifying the UI while exporting
     const clone = element.cloneNode(true) as HTMLElement;
@@ -42,9 +46,14 @@ export default function Export() {
     clone.classList.remove('gap-8', 'flex', 'flex-col', 'items-center');
     clone.style.display = 'block';
 
+    let filenameSafeType = '';
+    if (reportType === 'narrative') filenameSafeType = 'Narrative';
+    if (reportType === 'weekly') filenameSafeType = 'Weekly';
+    if (reportType === 'monthly') filenameSafeType = 'Monthly';
+
     const opt = {
       margin:       0,
-      filename:     `OJT_Report_${(profile?.name || 'Student').replace(/\s+/g, '_')}.pdf`,
+      filename:     `OJT_${filenameSafeType}_Report_${(profile?.name || 'Student').replace(/\s+/g, '_')}.pdf`,
       image:        { type: 'jpeg' as const, quality: 0.98 },
       html2canvas:  { 
         scale: 2, 
@@ -89,6 +98,25 @@ export default function Export() {
       // Clone the element to avoid modifying the visual UI
       const clone = container.cloneNode(true) as HTMLElement;
 
+      // Replace inputs and textareas with standard elements so Word renders them as text, not form controls
+      const inputs = clone.querySelectorAll('input');
+      inputs.forEach(input => {
+        const span = document.createElement('span');
+        span.className = input.className;
+        span.style.cssText = input.style.cssText;
+        span.textContent = input.value || input.placeholder || '';
+        input.parentNode?.replaceChild(span, input);
+      });
+
+      const textareas = clone.querySelectorAll('textarea');
+      textareas.forEach(textarea => {
+        const div = document.createElement('div');
+        div.className = textarea.className;
+        div.style.cssText = textarea.style.cssText;
+        div.textContent = textarea.value || textarea.placeholder || '';
+        textarea.parentNode?.replaceChild(div, textarea);
+      });
+
       // Aggressive inline style application for MS Word compatibility
       const all = clone.querySelectorAll('*');
       all.forEach(node => {
@@ -102,18 +130,17 @@ export default function Export() {
           el.style.marginBottom = '10pt';
         }
         if (el.tagName === 'TD' || el.tagName === 'TH') {
-          el.style.padding = '5pt';
-          el.style.verticalAlign = 'top';
-          if (!classList.includes('border-none')) {
-            el.style.border = '1px solid black';
-          }
+          if (!el.style.padding) el.style.padding = '3pt';
+          if (!el.style.verticalAlign) el.style.verticalAlign = 'top';
         }
 
         if (el.tagName === 'IMG') {
-          el.style.maxWidth = '100%';
-          el.style.height = 'auto';
-          el.style.display = 'block';
-          el.style.margin = '5pt auto';
+          if (!el.style.width && !el.style.maxWidth) {
+            el.style.maxWidth = '100%';
+            el.style.height = 'auto';
+          }
+          if (!el.style.display) el.style.display = 'block';
+          if (!el.style.margin) el.style.margin = '5pt auto';
         }
 
         // Mapping Tailwind classes to inline styles
@@ -174,6 +201,7 @@ export default function Export() {
         // Specific Spacings
         if (classList.includes('indent-8')) el.style.textIndent = '48pt';
         if (classList.includes('whitespace-pre-wrap')) el.style.whiteSpace = 'pre-wrap';
+        if (classList.includes('whitespace-nowrap')) el.style.whiteSpace = 'nowrap';
         if (classList.includes('leading-relaxed')) {
           el.style.lineHeight = '1.8';
         }
@@ -260,7 +288,11 @@ export default function Export() {
         }
 
         // Borders
+        if (classList.includes('border') && !classList.includes('border-none')) el.style.border = '1px solid black';
+        if (classList.includes('border-t')) el.style.borderTop = '1px solid black';
         if (classList.includes('border-b')) el.style.borderBottom = '1px solid black';
+        if (classList.includes('border-l')) el.style.borderLeft = '1px solid black';
+        if (classList.includes('border-r')) el.style.borderRight = '1px solid black';
         if (classList.includes('border-2')) el.style.border = '2px solid #ccc';
         if (classList.includes('border-dashed')) el.style.borderStyle = 'dashed';
         if (classList.includes('border-black')) el.style.borderColor = 'black';
@@ -297,16 +329,17 @@ export default function Export() {
           src = window.location.origin + src;
         }
         
-        // Use a safe width for Word
-        const detectedWidth = originalImg?.naturalWidth || originalImg?.clientWidth || originalImg?.width || 400;
-        const displayWidth = detectedWidth > 0 ? Math.min(detectedWidth, 650) : 400;
-
-        img.setAttribute('width', displayWidth.toString());
-        img.style.width = `${displayWidth}pt`; // Using pt for Word
-        img.style.height = 'auto';
-        img.style.maxWidth = '100%';
+        // Ensure explicit width and height exist so MS Word reserves space properly instead of collapsing to 0x0
+        const isPhotoGrid = !!img.closest('.photo-grid-table') || !!img.closest('.grid');
+        
+        // For general safety - safe size for an A4 page with 1-inch margins is 450pt max width
+        // For a 3x2 grid, available height is ~690pt. 690 / 3 = ~230pt max height per image safely.
+        img.setAttribute('width', isPhotoGrid ? '220' : '450');
+        img.setAttribute('height', isPhotoGrid ? '200' : ''); // Forced height attribute for rigorous sizing
+        img.style.width = isPhotoGrid ? '220pt' : '450pt';
+        img.style.height = isPhotoGrid ? '200pt' : 'auto';
         img.style.display = 'block';
-        img.style.margin = '10pt auto';
+        img.style.maxWidth = '100%';
 
         // Check if image is hidden in UI
         if (window.getComputedStyle(originalImg).display === 'none') {
@@ -314,13 +347,28 @@ export default function Export() {
            continue; 
         }
 
-        // If it's already a data URL, we still need to set the attributes above, then continue
+        // Keep object-cover visual by setting CSS for Word (where possible)
+        if (isPhotoGrid) {
+            img.style.objectFit = 'cover';
+        }
+
+        // If it's already a data URL, we don't need to fetch it over the network.
+        // It's already embedded in the original src. However, we MUST ensure the clone's 
+        // src attribute is completely populated with it for the Word Document rendering.
         if (src.startsWith('data:')) {
+          img.setAttribute('src', src);
+          img.src = src;
           continue;
         }
         
         try {
-          const res = await fetch(src);
+          // Add timeout to fetch to avoid hanging exports
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
+          const res = await fetch(src, { mode: 'cors', signal: controller.signal });
+          clearTimeout(timeoutId);
+          
           if (!res.ok) throw new Error('Fetch failed');
           const blob = await res.blob();
           const base64 = await new Promise<string>((resolve, reject) => {
@@ -329,12 +377,12 @@ export default function Export() {
             reader.onerror = reject;
             reader.readAsDataURL(blob);
           });
+          
+          // Update both the src property and attribute on the clone node
           img.src = base64;
-          img.setAttribute('src', base64); // Set both for max compatibility
+          img.setAttribute('src', base64); 
         } catch (err) {
-          console.warn('Failed to embed image in Word export:', src, err);
-          // Fallback to absolute URL if fetch fails
-          img.src = src;
+          console.warn('Failed to embed image in Word export (may be blocked by CORS):', src, err);
         }
       }
 
@@ -365,11 +413,17 @@ export default function Export() {
         </html>
       `;
 
+      let filenameSafeType = '';
+      if (reportType === 'narrative') filenameSafeType = 'Narrative';
+      if (reportType === 'weekly') filenameSafeType = 'Weekly';
+      if (reportType === 'monthly') filenameSafeType = 'Monthly';
+      if (reportType === 'evaluation') filenameSafeType = 'Evaluation';
+
       const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `OJT_Report_${(profile?.name || 'Student').replace(/\s+/g, '_')}.doc`;
+      link.download = `OJT_${filenameSafeType}_Report_${(profile?.name || 'Student').replace(/\s+/g, '_')}.doc`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -460,13 +514,31 @@ export default function Export() {
       // 1. Generate Weekly Summaries
       console.log(`Checking ${groupedEntries.length} weeks...`);
       for (const [weekKey, weekEntries] of groupedEntries) {
-        const firstEntryDate = parseISO(weekEntries[0].date);
+        if (!weekEntries || weekEntries.length === 0) continue;
+        
+        const firstEntryDateStr = weekEntries[0]?.date;
+        if (!firstEntryDateStr) continue;
+
+        let firstEntryDate;
+        try {
+          firstEntryDate = parseISO(firstEntryDateStr);
+          if (isNaN(firstEntryDate.getTime())) continue;
+        } catch (e) {
+          continue;
+        }
+
         const weekStart = startOfWeek(firstEntryDate, { weekStartsOn: 1 });
         const weekEnd = endOfWeek(firstEntryDate, { weekStartsOn: 1 });
         
         const existingReport = (weeklyReports || []).find((r: any) => {
-          const rStart = parseISO(r.weekStartDate);
-          return format(rStart, 'yyyy-MM-dd') === format(weekStart, 'yyyy-MM-dd');
+          if (!r?.weekStartDate) return false;
+          try {
+            const rStart = parseISO(r.weekStartDate);
+            if (isNaN(rStart.getTime())) return false;
+            return format(rStart, 'yyyy-MM-dd') === format(weekStart, 'yyyy-MM-dd');
+          } catch (e) {
+            return false;
+          }
         });
 
         // Generate if report doesn't exist OR if the narrative summary is missing
@@ -492,13 +564,8 @@ export default function Export() {
           Return JSON: {"accomplishment": "...", "problemsEncountered": "...", "actionTaken": "...", "narrative": "reflection summary", "commentsAndSuggestions": "notes"}`;
 
           try {
-            const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: prompt,
-              config: {
-                responseMimeType: "application/json"
-              }
-            });
+            const { generateContentWithRetry } = await import('@/lib/gemini');
+            const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
             
             if (response.text) {
               const parsed = cleanJson(response.text);
@@ -530,11 +597,23 @@ export default function Export() {
       // 2. Generate Monthly Summaries
       console.log(`Checking ${groupedEntriesByMonth.length} months...`);
       for (const [monthKey, monthEntries] of groupedEntriesByMonth) {
-        const firstEntryDate = parseISO(monthEntries[0].date);
+        if (!monthEntries || monthEntries.length === 0) continue;
+
+        const firstEntryDateStr = monthEntries[0]?.date;
+        if (!firstEntryDateStr) continue;
+
+        let firstEntryDate;
+        try {
+          firstEntryDate = parseISO(firstEntryDateStr);
+          if (isNaN(firstEntryDate.getTime())) continue;
+        } catch (e) {
+          continue;
+        }
+
         const monthStart = startOfMonth(firstEntryDate);
         const monthStr = format(monthStart, 'yyyy-MM');
         
-        const existingReport = (monthlyReports || []).find((r: any) => r.month === monthStr);
+        const existingReport = (monthlyReports || []).find((r: any) => r?.month === monthStr);
 
         if (!existingReport || !existingReport.narrative || !existingReport.accomplishment) {
           console.log(`Generating monthly report for: ${monthStr}`);
@@ -555,13 +634,8 @@ export default function Export() {
           Return JSON: {"accomplishment": "...", "problemsEncountered": "...", "actionTaken": "...", "narrative": "reflection summary", "commentsAndSuggestions": "notes"}`;
 
           try {
-            const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: prompt,
-              config: {
-                responseMimeType: "application/json"
-              }
-            });
+            const { generateContentWithRetry } = await import('@/lib/gemini');
+            const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
 
             if (response.text) {
               const parsed = cleanJson(response.text);
@@ -613,13 +687,8 @@ export default function Export() {
         Return JSON ONLY: {"introText": "...", "competenciesText": "...", "impactText": "...", "learningsText": "...", "conclusionText": "..."}`;
 
         try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-            config: {
-              responseMimeType: "application/json"
-            }
-          });
+          const { generateContentWithRetry } = await import('@/lib/gemini');
+          const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
 
           if (response.text) {
             const parsed = cleanJson(response.text);
@@ -634,6 +703,59 @@ export default function Export() {
           }
         } catch (apiErr) {
           console.error("Narrative generation error:", apiErr);
+        }
+      }
+
+      // 4. Generate Intern Evaluation
+      console.log("Checking intern evaluation questionnaire...");
+      const evalFields = [
+        'duties', 'strongestArea', 'improvedMost', 'needImprovement', 
+        'challengingSituation', 'overcameChallenge', 'learnedExperience', 
+        'qualifiedLinkage', 'recommendation'
+      ];
+      
+      const isEvalEmpty = evalFields.some(field => !evaluationData[field as keyof typeof evaluationData] || (evaluationData[field as keyof typeof evaluationData] as string).trim().length === 0);
+
+      if (isEvalEmpty && entries.length > 0) {
+        console.log("Generating evaluation questionnaire...");
+        const allEntriesText = JSON.stringify(entries.slice(-50).map(e => ({ date: e.date, task: e.accomplishment, problem: e.problemsEncountered, action: e.actionTaken })));
+        const prompt = `Generate realistic short answers for a student intern evaluation questionnaire based on their daily logs. Use simple, brief sentences.
+Student Logs: ${allEntriesText}
+Profile: ${profile?.courseAndYear || ''} intern at ${profile?.hostEstablishment || ''}.
+
+Return a JSON object with these EXACT keys:
+- duties: (Briefly describe regular tasks based on logs)
+- strongestArea: (What is the student's strongest performance area?)
+- improvedMost: (What did they improve on most?)
+- needImprovement: (What area needs the most improvement? Keep it constructive)
+- challengingSituation: (Mention a realistic challenge they faced)
+- overcameChallenge: (How did they overcome it?)
+- learnedExperience: (Overall learning takeaway)
+- qualifiedLinkage: (Should the school keep linking with this company? Just answer 'Yes, because...' shortly)
+
+Response should ONLY contain the JSON.`;
+
+        try {
+          const { generateContentWithRetry } = await import('@/lib/gemini');
+          const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
+
+          if (response.text) {
+            const parsed = cleanJson(response.text);
+            setEvaluationData({
+              duties: parsed.duties || evaluationData.duties || '',
+              strongestArea: parsed.strongestArea || evaluationData.strongestArea || '',
+              improvedMost: parsed.improvedMost || evaluationData.improvedMost || '',
+              needImprovement: parsed.needImprovement || evaluationData.needImprovement || '',
+              challengingSituation: parsed.challengingSituation || evaluationData.challengingSituation || '',
+              overcameChallenge: parsed.overcameChallenge || evaluationData.overcameChallenge || '',
+              learnedExperience: parsed.learnedExperience || evaluationData.learnedExperience || '',
+              qualifiedLinkage: parsed.qualifiedLinkage || evaluationData.qualifiedLinkage || '',
+              recommendation: '' // Ensure this stays empty
+            });
+            generatedCount++;
+          }
+        } catch (apiErr) {
+          console.error("Evaluation generation error:", apiErr);
         }
       }
 
@@ -740,11 +862,12 @@ export default function Export() {
         <select 
           className="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white min-w-[250px]"
           value={reportType}
-          onChange={(e) => setReportType(e.target.value as 'narrative' | 'weekly' | 'monthly')}
+          onChange={(e) => setReportType(e.target.value as 'narrative' | 'weekly' | 'monthly' | 'evaluation')}
         >
           <option value="narrative">Narrative Report (Daily)</option>
           <option value="weekly">Weekly Journal Report</option>
           <option value="monthly">Monthly Journal Report</option>
+          <option value="evaluation">Interns Evaluation Form</option>
         </select>
         
         <div className="flex flex-wrap items-center gap-2">
@@ -805,7 +928,7 @@ export default function Export() {
                 className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
               >
                 <Plus className="mr-2 h-4 w-4" />
-                Add Photos
+                Photos
               </Button>
             </div>
           )}
@@ -823,27 +946,25 @@ export default function Export() {
             )}
             {isGenerating ? 'Generating...' : 'Auto-Generate Summaries'}
           </Button>
-          {reportType === 'narrative' && (
-            <Button 
-              onClick={handleExportWord} 
-              variant="outline" 
-              className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 disabled:opacity-50"
-              disabled={entries.length === 0}
-            >
-              <FileText className="mr-2 h-4 w-4" />
-              Export to Word
-            </Button>
-          )}
+          <Button 
+            onClick={handleExportWord} 
+            variant="outline" 
+            className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 disabled:opacity-50"
+            disabled={reportType !== 'evaluation' && entries.length === 0}
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Export to Word
+          </Button>
           <Button 
             onClick={handleExportPDF} 
             variant="outline" 
             className="bg-red-50 text-red-600 border-red-200 hover:bg-red-100 disabled:opacity-50"
-            disabled={entries.length === 0}
+            disabled={reportType !== 'evaluation' && entries.length === 0}
           >
             <Download className="mr-2 h-4 w-4" />
             Export to PDF
           </Button>
-          <Button onClick={handlePrint} disabled={entries.length === 0}>
+          <Button onClick={handlePrint} disabled={reportType !== 'evaluation' && entries.length === 0}>
             <Printer className="mr-2 h-4 w-4" />
             Print
           </Button>
@@ -864,8 +985,10 @@ export default function Export() {
               <NarrativeReportTemplate profile={profile} groupedEntries={groupedEntries} weeklyReports={weeklyReports} />
             ) : reportType === 'weekly' ? (
               <WeeklyJournalTemplate profile={profile} weeklyReports={weeklyReports} />
-            ) : (
+            ) : reportType === 'monthly' ? (
               <MonthlyJournalTemplate profile={profile} weeklyReports={weeklyReports} monthlyReports={monthlyReports} />
+            ) : (
+              <InternEvaluationTemplate profile={profile} />
             )}
           </div>
         </div>
@@ -876,840 +999,5 @@ export default function Export() {
         onClose={() => setIsNarrativeModalOpen(false)} 
       />
     </div>
-  );
-}
-
-function NarrativeReportTemplate({ profile, groupedEntries, weeklyReports }: { profile: any, groupedEntries: any[], weeklyReports?: any[] }) {
-  if (!groupedEntries || groupedEntries.length === 0) {
-    return <div className="text-muted-foreground p-8 text-center bg-white border border-dashed border-gray-300 rounded-lg w-full max-w-md mx-auto print:hidden">No daily entries available. Please add them in the Daily Entries tab.</div>;
-  }
-
-  const pageWrapperStyle = {
-    fontFamily: '"Times New Roman", Times, serif', 
-    pageBreakAfter: 'always',
-    breakAfter: 'page',
-    width: '210mm',
-    height: 'auto',
-    minHeight: '297mm',
-    boxSizing: 'border-box' as const,
-    position: 'relative' as const
-  };
-
-  const Page: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="bg-white shadow-lg print:shadow-none px-[20mm] pt-[10mm] pb-[20mm] text-black print:px-[20mm] print:pt-[10mm] print:pb-[20mm] print:m-0 break-inside-avoid print:break-after-page html2pdf__page-break flex flex-col" style={pageWrapperStyle}>
-      {children}
-    </div>
-  );
-
-  return (
-    <>
-      {/* 1. Title Page */}
-      <Page>
-        <div className="flex flex-col h-full items-center justify-center text-center mt-8 mb-24" style={{ textAlign: 'center' }}>
-          <p className="font-bold" style={{ textAlign: 'center', margin: 0 }}>A Narrative Report in</p>
-          <br /><br />
-          <p style={{ textAlign: 'center', margin: 0 }}>Computer Science Internship</p>
-          <p style={{ textAlign: 'center', margin: 0 }}>Undertaken at {profile.hostEstablishment || 'Local Government Unit of Mambusao'}</p>
-          <p style={{ textAlign: 'center', margin: 0 }}>Located at {profile.address || 'Poblacion Proper, Mambusao, Capiz'}</p>
-          <br /><br /><br /><br />
-          <p style={{ textAlign: 'center', margin: 0 }}>In Partial Fulfillment of the requirements for the course</p>
-          <p style={{ textAlign: 'center', margin: 0 }}>Bachelor of Science in {profile.courseAndYear?.includes('BSCS') ? 'Computer Science' : (profile.courseAndYear || 'Computer Science')}</p>
-          <br /><br /><br /><br />
-          <p style={{ textAlign: 'center', margin: 0 }}>Submitted to:</p>
-          <br />
-          <p className="font-bold uppercase" style={{ textAlign: 'center', margin: 0 }}>{profile.facilitator || 'PROF. ART JAYSON L. OSUYOS'}</p>
-          <p style={{ textAlign: 'center', margin: 0 }}>BSCS SIPP Coordinator/Facilitator</p>
-          <br /><br /><br /><br />
-          <p style={{ textAlign: 'center', margin: 0 }}>Submitted by:</p>
-          <br />
-          <p className="font-bold uppercase" style={{ textAlign: 'center', margin: 0 }}>{profile.name || 'Student Intern'}</p>
-          <p style={{ textAlign: 'center', margin: 0 }}>Student Intern</p>
-          <br /><br /><br /><br />
-          <p style={{ textAlign: 'center', margin: 0 }}>{new Date().getFullYear()}</p>
-        </div>
-      </Page>
-
-      {/* 2. Dedication & Acknowledgement */}
-      <Page>
-        <div className="text-center font-bold uppercase mt-2 text-lg">DEDICATION & ACKNOWLEDGEMENT</div>
-        <div className="mt-8 text-justify indent-8 leading-relaxed whitespace-pre-wrap">
-          {profile.dedicationText || `I dedicate this work first and foremost to the Almighty God for the strength, wisdom, and protection He provided throughout my training journey.\n\nTo my beloved parents, for their endless love, support, and encouragement. Their sacrifices have been the foundation of my education and have motivated me to do my best in every challenge I face.\n\nTo my professors and facilitators at CAPIZ STATE UNIVERSITY - MAMBUSAO SATELLITE CAMPUS, especially to ${profile.facilitator || 'PROF. ART JAYSON L. OSUYOS'}, for the guidance and knowledge they have shared.\n\nTo the staff and personnel of the ${profile.hostEstablishment || 'Municipal Disaster Risk Reduction and Management Office (MDRRMO)'}, for the opportunity to have my On-the-Job Training in their office. I am deeply grateful for the trust and for allowing me to experience first-hand the duties and responsibilities in your workplace.\n\nFinally, to my friends and fellow trainees, for the camaraderie and for sharing the challenges and successes during our training. This experience has been more meaningful because of your support.`}
-        </div>
-      </Page>
-
-      {/* 3. Table of Contents */}
-      <Page>
-        <div className="text-center font-bold uppercase mt-2 mb-12 text-lg">TABLE OF CONTENTS</div>
-        <table className="mx-auto w-[70%] border-none text-left border-collapse" style={{ padding: '0 10%' }}>
-          <tbody>
-            <tr><td className="border-none font-bold text-right pr-6 py-2 w-16" style={{ width: '40pt', paddingRight: '15pt' }}>I.</td><td className="border-none font-bold py-2">Title Page</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2" style={{ paddingRight: '15pt' }}>II.</td><td className="border-none font-bold py-2">Dedication & Acknowledgement</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2" style={{ paddingRight: '15pt' }}>III.</td><td className="border-none font-bold py-2">Table of Contents</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2" style={{ paddingRight: '15pt' }}>IV.</td><td className="border-none font-bold py-2">Introduction</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2" style={{ paddingRight: '15pt' }}>V.</td><td className="border-none font-bold py-2">Internship Experience</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2" style={{ paddingRight: '15pt' }}>VI.</td><td className="border-none font-bold py-2">Competencies</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2" style={{ paddingRight: '15pt' }}>VII.</td><td className="border-none font-bold py-2">Impact</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2" style={{ paddingRight: '15pt' }}>VIII.</td><td className="border-none font-bold py-2">Learning</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2" style={{ paddingRight: '15pt' }}>IX.</td><td className="border-none font-bold py-2">Conclusion</td></tr>
-            <tr><td className="border-none font-bold text-right pr-6 py-2 align-top" style={{ paddingRight: '15pt' }}>X.</td><td className="border-none font-bold py-2">Documentation<br/>
-              <span className="font-normal block mt-2 ml-4" style={{ marginLeft: '15pt', display: 'block' }}>&bull; Certificate of Completion</span>
-              <span className="font-normal block mt-2 ml-4" style={{ marginLeft: '15pt', display: 'block' }}>&bull; OJT Photo Documentation</span>
-            </td></tr>
-          </tbody>
-        </table>
-      </Page>
-
-      {/* 4. Introduction */}
-      <Page>
-        <div className="text-center font-bold uppercase mt-2 mb-8 text-lg underline">IV. INTRODUCTION</div>
-        <div className="text-justify indent-8 leading-relaxed mb-6 whitespace-pre-wrap">
-          {profile.introText || `On-the-Job Training (OJT) played a vital role in my learning journey as it provided real workplace experience. It helped me apply the knowledge and skills I gained from school in an actual working environment. Through this training, I was able to better understand how tasks are performed in a real emergency response setting and how important it is to follow proper procedures in every situation.\n\nDuring my training, I was able to observe how a real emergency response office operates. I learned how different tasks are carried out in the ${profile.hostEstablishment ? profile.hostEstablishment.toUpperCase() : 'MUNICIPAL DISASTER RISK REDUCTION AND MANAGEMENT OFFICE (MDRRMO)'}, especially in responding to emergencies and assisting the community. This experience also helped me understand the importance of discipline, teamwork, responsibility, and proper communication in the workplace.\n\nOverall, this experience helped me become more aware of how disaster response services operate in the community. It gave me valuable learning that improved my skills, increased my confidence, and prepared me for future challenges in a professional environment.`}
-        </div>
-      </Page>
-
-      {/* 5. Internship Experience (Weekly Reports) */}
-      <div id="internship-experience-section">
-        {groupedEntries.map(([weekKey, weekEntries], index) => {
-          const totalHours = weekEntries.reduce((sum: number, e: any) => sum + e.workingHours, 0);
-          
-          const firstEntryDate = parseISO(weekEntries[0].date);
-          const lastEntryDate = parseISO(weekEntries[weekEntries.length - 1].date);
-          
-          let displayDateCovered = '';
-          if (firstEntryDate.getMonth() === lastEntryDate.getMonth()) {
-            displayDateCovered = `${format(firstEntryDate, 'MMMM dd')}-${format(lastEntryDate, 'dd, yyyy')}`;
-          } else {
-            displayDateCovered = `${format(firstEntryDate, 'MMMM dd')} - ${format(lastEntryDate, 'MMMM dd, yyyy')}`;
-          }
-
-          const weekStart = startOfWeek(firstEntryDate, { weekStartsOn: 1 });
-          const weekEnd = endOfWeek(firstEntryDate, { weekStartsOn: 1 });
-          
-          const report = weeklyReports?.find((r: any) => {
-            const rStart = parseISO(r.weekStartDate);
-            return rStart >= weekStart && rStart <= weekEnd;
-          });
-          
-          return (
-            <Page key={weekKey}>
-              <div className="text-center font-bold uppercase mt-2 mb-4 text-lg underline">V. INTERNSHIP EXPERIENCE</div>
-              <div className="text-center font-bold uppercase mb-4 text-[13pt]">
-                WEEK {index + 1}: {profile.hostEstablishment ? profile.hostEstablishment.toUpperCase() : 'LOCAL GOVERNMENT UNIT OF MAMBUSAO'}
-              </div>
-              <p className="text-center mb-6">Date Covered: {displayDateCovered}</p>
-              
-              <table className="w-full border-collapse border border-black text-sm mb-6">
-                <thead>
-                  <tr>
-                    <th className="border border-black p-2 w-[15%] text-center uppercase">DAY</th>
-                    <th className="border border-black p-2 w-[20%] text-center uppercase">DATE</th>
-                    <th className="border border-black p-2 w-[50%] text-center uppercase">DAILY ACCOMPLISHMENT REPORT</th>
-                    <th className="border border-black p-2 w-[15%] text-center uppercase">NO. OF WORKING HOURS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {weekEntries.map((entry: any) => (
-                    <tr key={entry.id}>
-                      <td className="border border-black p-2 text-center capitalize font-bold align-middle">
-                        {format(parseISO(entry.date), 'EEEE')}
-                      </td>
-                      <td className="border border-black p-2 text-center align-middle whitespace-nowrap">
-                        {format(parseISO(entry.date), 'MMMM dd, yyyy')}
-                      </td>
-                      <td className="border border-black p-2 whitespace-pre-wrap">
-                        {entry.status === 'holiday' ? 'Holiday' : entry.status === 'absent' ? 'Absent' : entry.accomplishment}
-                      </td>
-                      <td className="border border-black p-2 text-center font-bold align-middle bg-gray-50/50">
-                        {entry.workingHours > 0 ? entry.workingHours : '---'}
-                      </td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td colSpan={3} className="border border-black p-2 text-right font-bold">
-                      Total No. of Hours :
-                    </td>
-                    <td className="border border-black p-2 text-center font-bold">
-                      {totalHours} Hours
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-
-              {report?.narrative && (
-                <div className="mt-8 text-justify indent-8 leading-relaxed whitespace-pre-wrap">
-                  {report.narrative}
-                </div>
-              )}
-            </Page>
-          );
-        })}
-      </div>
-
-      {/* 6. Competencies */}
-      <Page>
-        <div className="text-center font-bold uppercase mt-2 mb-8 text-lg underline">VI. COMPETENCIES</div>
-        <div className="text-justify indent-8 leading-relaxed whitespace-pre-wrap">
-          {profile.competenciesText || `I completed my ${profile.requiredHours || '200'} hours of On-the-Job Training at the ${profile.hostEstablishment || 'Local Government Unit (LGU) of Mambusao'}, specifically at the Municipal Disaster Risk Reduction and Management Office (MDRRMO). During my ${profile.requiredHours || '200'} hours of training, I was given the opportunity to experience different activities and tasks related to emergency response and disaster management. This exposure allowed me to observe how the office operates in handling emergencies and providing assistance to the community.\n\nThroughout my training, I developed basic competencies in emergency response, patient care, and disaster preparedness. I also learned how to assist in different emergency situations, follow proper procedures in the workplace, and work with discipline and teamwork. In addition, my ${profile.requiredHours || '200'} hours helped me gain more confidence in performing tasks and improved my understanding of the importance of quick and proper response during emergencies. Overall, the experience was very helpful in enhancing my skills and preparing me for future work.`}
-        </div>
-      </Page>
-
-      {/* 7. Impact */}
-      <Page>
-        <div className="text-center font-bold uppercase mt-2 mb-8 text-lg underline">VII. IMPACT</div>
-        <div className="text-justify indent-8 leading-relaxed whitespace-pre-wrap">
-          {profile.impactText || `My ${profile.requiredHours || '200'} HOURS OF TRAINING at the ${profile.hostEstablishment ? profile.hostEstablishment.toUpperCase() : 'MUNICIPAL DISASTER RISK REDUCTION AND MANAGEMENT OFFICE (MDRRMO) MAMBUSAO'} had a great impact on my personal and professional development. It helped me become more confident in performing tasks and more responsible in handling assigned duties. Through this experience, I also learned the importance of discipline in the workplace and how it contributes to the proper flow of work, especially in emergency situations.\n\nI also learned the importance of teamwork and cooperation when responding to emergencies. I realized that every role in disaster response is important, and each member of the team contributes to saving lives and ensuring safety. This training helped me understand how effective communication and coordination are essential during emergency operations.\n\nOverall, the ${profile.requiredHours || '200'} HOURS OF TRAINING motivated me to improve myself and develop my skills further. It strengthened my interest in emergency and rescue services and made me more aware of the importance of being prepared in handling disaster and emergency situations. It also helped me understand the value of proper response and assistance in ensuring the safety of the community.`}
-        </div>
-      </Page>
-
-      {/* 8. Learning */}
-      <Page>
-        <div className="text-center font-bold uppercase mt-2 mb-8 text-lg underline">VIII. LEARNING</div>
-        <div className="text-justify indent-8 leading-relaxed whitespace-pre-wrap">
-          {profile.learningsText || `My ${profile.requiredHours || '200'} HOURS ON-THE-JOB TRAINING at the ${profile.hostEstablishment ? profile.hostEstablishment.toUpperCase() : 'LOCAL GOVERNMENT UNIT (LGU) MAMBUSAO – MUNICIPAL DISASTER RISK REDUCTION AND MANAGEMENT OFFICE (MDRRMO)'} gave me real experience in a workplace setting. It allowed me to see how the office works in helping people during emergencies and disasters. I was able to observe how the office responds to different situations in the community and how important their role is in ensuring public safety.\n\nDuring my ${profile.requiredHours || '200'} HOURS, I learned and experienced different tasks that helped me improve my skills and knowledge. I was exposed to emergency response activities, patient care, and disaster preparedness. I also learned the importance of following proper procedures, working as a team, and staying disciplined in the workplace. Overall, this training helped me gain confidence and better understanding of how emergency services work in real life situations.`}
-        </div>
-      </Page>
-
-      {/* 9. Conclusion */}
-      <Page>
-        <div className="text-center font-bold uppercase mt-2 mb-8 text-lg underline">IX. CONCLUSION</div>
-        <div className="text-justify indent-8 leading-relaxed whitespace-pre-wrap">
-          {profile.conclusionText || `My ${profile.requiredHours || '200'} HOURS OF ON-THE-JOB TRAINING at the ${profile.hostEstablishment ? profile.hostEstablishment.toUpperCase() : 'LOCAL GOVERNMENT UNIT (LGU) MAMBUSAO – MUNICIPAL DISASTER RISK REDUCTION AND MANAGEMENT OFFICE (MDRRMO)'} was a very meaningful and valuable experience. It gave me real-life exposure to emergency response work and allowed me to observe how the office handles different emergency situations in the community. This experience helped me understand the importance of readiness, quick action, and proper coordination in times of emergencies.\n\nDuring my training, I was able to develop important skills such as first aid, CPR, patient handling, and the proper use of rescue equipment. I also learned how to apply proper procedures in responding to emergencies, which is very important in ensuring safety and saving lives. In addition, I gained knowledge on how teamwork and communication play a big role in effective emergency response.\n\nOverall, this ${profile.requiredHours || '200'} HOURS OF TRAINING prepared me to become more competent, responsible, and confident in handling tasks related to emergency situations. It helped me improve my skills, develop discipline, and become more aware of the importance of helping others during times of need.`}
-        </div>
-      </Page>
-
-        {/* 10. Documentation */}
-        <div id="documentation-section">
-          <Page>
-            <div className="text-center font-bold uppercase mt-2 mb-8 text-lg underline">X. DOCUMENTATION</div>
-            <div className="text-center font-bold uppercase mt-8 mb-8 text-lg italic">Certificate of Completion</div>
-            {profile.certificateImageUrl ? (
-               <div className="flex justify-center mt-8">
-                 <img 
-                   src={profile.certificateImageUrl} 
-                   alt="Certificate of Completion" 
-                   className="max-w-full max-h-[700px] object-contain border border-gray-300 shadow-sm"
-                 />
-               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-[500px] border-2 border-dashed border-gray-300 rounded-lg mx-8 mt-16 text-muted-foreground bg-gray-50">
-                <span>[Insert Certificate Image Here in Word]</span>
-                <span className="text-xs mt-2">Go to Settings to upload your scanned certificate</span>
-              </div>
-            )}
-          </Page>
-
-          {profile?.documentationImages && profile.documentationImages.length > 0 ? (
-            (() => {
-              const chunkArrayLocal = (arr: any[], size: number) => {
-                const chunked = [];
-                for (let i = 0; i < arr.length; i += size) {
-                  chunked.push(arr.slice(i, i + size));
-                }
-                return chunked;
-              };
-              const chunks = chunkArrayLocal(profile.documentationImages, 6);
-              
-              return chunks.map((chunk, pageIdx) => (
-                <Page key={`photo-page-${pageIdx}`}>
-                  <div className="text-center font-bold uppercase mt-2 mb-8 text-lg underline">X. DOCUMENTATION</div>
-                  <div className="text-center font-bold uppercase mb-4 text-lg italic">OJT Photo Documentation</div>
-                  
-                  <div className="grid grid-cols-2 grid-rows-3 gap-4 h-[220mm] mt-4">
-                    {chunk.map((img: any) => (
-                      <div key={img.id} className="flex flex-col items-center border border-gray-200 p-2 rounded bg-white shadow-sm overflow-hidden">
-                        <div className="w-full h-[88%] flex items-center justify-center bg-gray-50 border border-gray-100 rounded overflow-hidden">
-                          <img 
-                            src={img.url} 
-                            alt={img.caption || 'Documentation Photo'} 
-                            className="max-w-full max-h-full object-contain"
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                        <div className="w-full mt-2 text-center text-[10px] font-normal leading-tight italic truncate">
-                          {img.caption || 'Photo Documentation'}
-                        </div>
-                      </div>
-                    ))}
-                    {/* Fill empty spots in the 3x2 grid to maintain layout if needed, though grid handles it */}
-                  </div>
-                </Page>
-              ));
-            })()
-          ) : (
-            <Page>
-              <div className="text-center font-bold uppercase mt-2 mb-8 text-lg underline">X. DOCUMENTATION</div>
-              <div className="text-center font-bold uppercase mt-8 mb-8 text-lg italic">OJT Photo Documentation</div>
-              <div className="grid grid-cols-2 gap-4 px-4 mt-8">
-                 <div className="h-[300px] border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-muted-foreground bg-gray-50 max-w-full overflow-hidden text-sm">[Photo 1] Paste here</div>
-                 <div className="h-[300px] border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-muted-foreground bg-gray-50 max-w-full overflow-hidden text-sm">[Photo 2] Paste here</div>
-                 <div className="h-[300px] border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-muted-foreground bg-gray-50 max-w-full overflow-hidden text-sm">[Photo 3] Paste here</div>
-                 <div className="h-[300px] border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center text-muted-foreground bg-gray-50 max-w-full overflow-hidden text-sm">[Photo 4] Paste here</div>
-              </div>
-            </Page>
-          )}
-        </div>
-
-      {/* 12. Vision/Mission */}
-      <Page>
-        <div className="mb-8">
-          <div className="font-bold uppercase mb-4 text-[13pt]">VISION</div>
-          <div className="leading-relaxed">Center of Academic Excellence Delivering Quality Service to all.</div>
-        </div>
-
-        <div className="mb-8">
-          <div className="font-bold uppercase mb-4 text-[13pt]">MISSION</div>
-          <div className="leading-relaxed text-justify">
-            Capiz State University is Committed to provide advanced knowledge and innovation; develop skills, talents and values; undertake relevant research, development and extension services; promote entrepreneurship and environmental consciousness; enhance industry collaboration and linkages with partner agencies.
-          </div>
-        </div>
-
-        <div className="mb-8">
-          <div className="font-bold uppercase mb-4 text-[13pt]">GOALS</div>
-          <ol className="list-decimal pl-8 space-y-2 leading-relaxed">
-            <li style={{ listStyleType: 'decimal' }}>Globally competitive graduates</li>
-            <li style={{ listStyleType: 'decimal' }}>Institutionalized research culture</li>
-            <li style={{ listStyleType: 'decimal' }}>Responsive and sustainable extension services</li>
-            <li style={{ listStyleType: 'decimal' }}>Maximized profit of viable agro-industrial business ventures</li>
-            <li style={{ listStyleType: 'decimal' }}>Effective and efficient administration.</li>
-          </ol>
-        </div>
-
-        <div className="mb-8">
-          <div className="font-bold uppercase mb-4 text-[13pt]">OBJECTIVES</div>
-          <ol className="list-decimal pl-8 space-y-2 leading-relaxed">
-            <li style={{ listStyleType: 'decimal' }}>Create an environment of shared leadership and responsibilities with competent administrator.</li>
-            <li style={{ listStyleType: 'decimal' }}>Provide relevant trainings and seminars to faculty, staff, and students.</li>
-            <li style={{ listStyleType: 'decimal' }}>Produce highly competitive graduates</li>
-            <li style={{ listStyleType: 'decimal' }}>Conduct relevant and applied researches</li>
-            <li style={{ listStyleType: 'decimal' }}>Extend financial support and manpower for outreach activities.</li>
-          </ol>
-        </div>
-
-        <div className="mb-8">
-          <div className="font-bold uppercase mb-4 text-[13pt]">QUALITY POLICY</div>
-          <div className="leading-relaxed text-justify">
-            <span className="font-bold">CAPSU</span> is committed to be the center of Academic Excellence Delivering the quality service to all by:
-            <ul className="list-disc pl-8 mt-2 space-y-1">
-              <li style={{ listStyleType: 'disc' }}>Continuing innovations and quality improvements cultivating an efficient and effective environment for maximum clientele satisfaction;</li>
-              <li style={{ listStyleType: 'disc' }}>Adhering to laws and regulations, global standards and environmental change requirements;</li>
-              <li style={{ listStyleType: 'disc' }}>Participating and sustainable projects for inclusive economic growth;</li>
-              <li style={{ listStyleType: 'disc' }}>Showcasing quality outputs; and</li>
-              <li style={{ listStyleType: 'disc' }}>Upholding values and integrity and nurturing talents and skills for global competitiveness.</li>
-            </ul>
-          </div>
-        </div>
-      </Page>
-
-      {/* 13. Signatures */}
-      <Page>
-        <div className="mt-auto pb-12">
-          <table className="w-full border-collapse">
-            <tbody>
-              <tr>
-                <td className="w-[45%] text-center align-bottom">
-                  <div className="text-[10px] font-bold mb-4 text-left uppercase underline">SUBMITTED BY:</div>
-                  <div className="relative h-16 flex items-end justify-center mb-1">
-                    {profile.signatureImageUrl && (
-                      <img 
-                        src={profile.signatureImageUrl} 
-                        className="absolute bottom-0 h-16 w-auto object-contain" 
-                        alt="Signature"
-                        referrerPolicy="no-referrer"
-                      />
-                    )}
-                    <div className="font-bold text-lg leading-none uppercase z-10">{profile.name}</div>
-                  </div>
-                  <div className="border-b border-black w-full"></div>
-                  <div className="text-[10px] uppercase pt-2">Intern / Trainee</div>
-                  <div className="text-[10px] pt-1">Date: ________________</div>
-                </td>
-                <td className="w-[10%]"></td>
-                <td className="w-[45%] text-center align-bottom">
-                  <div className="text-[10px] font-bold mb-20 uppercase text-left underline">NOTED BY:</div>
-                  <div className="font-bold text-lg mb-6 leading-none uppercase">{profile.headOffice}</div>
-                  <div className="border-b border-black w-full"></div>
-                  <div className="text-[10px] uppercase pt-2">On-Site Supervisor</div>
-                  <div className="text-[10px] pt-1">Date: ________________</div>
-                </td>
-              </tr>
-              <tr>
-                <td colSpan={3} className="h-32"></td>
-              </tr>
-              <tr>
-                <td className="w-[45%] text-center align-bottom mx-auto" colSpan={3}>
-                  <div className="text-[10px] font-bold mb-20 uppercase text-center underline">APPROVED BY:</div>
-                  <div className="font-bold text-lg mb-6 leading-none uppercase">{profile.facilitator || 'PROF. ART JAYSON L. OSUYOS'}</div>
-                  <div className="border-b border-black w-48 mx-auto"></div>
-                  <div className="text-[10px] uppercase pt-2">BSCS SIPP Coordinator/Facilitator</div>
-                  <div className="text-[10px] pt-1">Date: ________________</div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </Page>
-    </>
-  );
-}
-
-const linedPaperStyle = {
-  backgroundImage: 'repeating-linear-gradient(transparent, transparent 31px, #000 31px, #000 32px)',
-  backgroundSize: '100% 32px',
-  lineHeight: '32px',
-  paddingTop: '0px',
-  paddingBottom: '0px',
-};
-
-function MonthlyJournalTemplate({ profile, weeklyReports, monthlyReports }: { profile: any, weeklyReports: any[], monthlyReports: any[] }) {
-  if (!weeklyReports || weeklyReports.length === 0) return <div className="text-muted-foreground p-8 text-center bg-white border border-dashed border-gray-300 rounded-lg w-full max-w-md mx-auto print:hidden">No reports available. Please generate them in the Weekly Reports tab.</div>;
-
-  // Group weekly reports by month based on weekStartDate
-  const reportsByMonth = new Map<string, any[]>();
-  weeklyReports.forEach(report => {
-    const date = parseISO(report.weekStartDate);
-    const key = format(date, 'yyyy-MM');
-    if (!reportsByMonth.has(key)) {
-      reportsByMonth.set(key, []);
-    }
-    reportsByMonth.get(key)!.push(report);
-  });
-
-  // Sort months
-  const sortedMonths = Array.from(reportsByMonth.keys()).sort();
-
-  const getWeekOrdinal = (n: number) => {
-    const s = ["th", "st", "nd", "rd"];
-    const v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]) + " Week";
-  };
-
-  return (
-    <>
-      {sortedMonths.map((monthKey) => {
-        const monthReports = reportsByMonth.get(monthKey)!.sort((a, b) => new Date(a.weekStartDate).getTime() - new Date(b.weekStartDate).getTime());
-        const monthStart = startOfMonth(parseISO(`${monthKey}-01`));
-        const monthEnd = endOfMonth(monthStart);
-        const monthReport = (monthlyReports || []).find(r => r.month === monthKey);
-
-        return (
-          <div 
-            key={monthKey} 
-            className="bg-white px-10 pt-4 pb-10 text-black flex flex-col html2pdf__page-break shadow-none" 
-            style={{ 
-              fontFamily: '"Times New Roman", Times, serif', 
-              pageBreakAfter: 'always',
-              breakAfter: 'page',
-              width: '1248px',
-              minHeight: '816px',
-              height: 'auto',
-              boxSizing: 'border-box',
-              position: 'relative'
-            }}
-          >
-            {/* Table Header Structure from Image */}
-            <table className="w-full border-collapse border border-black mb-4 text-[11px] shrink-0">
-              <tbody>
-                <tr className="h-20">
-                  <td className="border border-black p-2 w-[12%] text-center align-middle">
-                    <img 
-                      src={`${window.location.origin}/logo-capsu.jpg`}
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      alt="Capiz State University Logo" 
-                      className="w-20 h-20 mx-auto object-contain"
-                    />
-                  </td>
-                  <td className="border border-black p-0 w-[55%] align-top">
-                    <table className="w-full h-full border-none">
-                      <tbody>
-                        <tr className="h-10">
-                          <td className="border-b border-black p-1 align-top relative">
-                            <div className="flex justify-between w-full">
-                               <span className="text-[9px]">Document Type:</span>
-                               <span className="font-bold text-sm mx-auto">FORM</span>
-                            </div>
-                            <div className="text-center text-[9px] absolute bottom-1 w-full left-0">ISO 9001:2015</div>
-                          </td>
-                        </tr>
-                        <tr className="h-10">
-                          <td className="p-1 align-top relative">
-                            <div className="text-[9px] absolute top-1 left-1">Document Title:</div>
-                            <div className="text-center font-bold text-sm mt-3 uppercase tracking-tighter">STUDENT'S MONTHLY JOURNAL REPORT</div>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                  <td className="border border-black p-0 w-[30%]">
-                    <table className="w-full h-full border-none">
-                      <tbody>
-                        <tr className="h-[20px]">
-                          <td className="border-b border-r border-black p-1 text-[9px] w-1/3">Document Code</td>
-                          <td className="border-b border-black p-1 font-bold text-center text-[10px]">EAL-F03</td>
-                        </tr>
-                        <tr className="h-[20px]">
-                          <td className="border-b border-r border-black p-1 text-[9px]">Revision No.</td>
-                          <td className="border-b border-black p-1 font-bold text-center text-[10px]">00</td>
-                        </tr>
-                        <tr className="h-[20px]">
-                          <td className="border-b border-r border-black p-1 text-[9px]">Effective Date</td>
-                          <td className="border-b border-black p-1 font-bold text-center text-[10px]">October 07, 2019</td>
-                        </tr>
-                        <tr className="h-[20px]">
-                          <td className="border-r border-black p-1 text-[9px]">Page</td>
-                          <td className="p-1 font-bold text-center text-[10px]">1 of 1</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            {/* Student Info Section - table-based with extra clearance */}
-            <div className="mb-8 text-xs uppercase font-bold shrink-0">
-              <table className="w-full border-collapse">
-                <tbody>
-                  <tr className="h-10">
-                    <td className="whitespace-nowrap w-[1%] pr-2 align-bottom pb-1">NAME:</td>
-                    <td className="border-b border-black align-bottom">
-                      <div className="text-center font-normal px-2 leading-none mb-3">{profile.name}</div>
-                    </td>
-                    <td className="whitespace-nowrap w-[1%] px-4 text-right align-bottom pb-1">COURSE & YEAR:</td>
-                    <td className="border-b border-black w-48 align-bottom">
-                      <div className="text-center font-normal px-2 leading-none mb-3">{profile.courseAndYear}</div>
-                    </td>
-                    <td className="whitespace-nowrap w-[1%] px-4 text-right align-bottom pb-1">MAJOR:</td>
-                    <td className="border-b border-black w-48 align-bottom">
-                      <div className="text-center font-normal px-2 leading-none mb-3">{profile.major}</div>
-                    </td>
-                  </tr>
-                  <tr className="h-10">
-                    <td className="whitespace-nowrap w-[1%] pr-2 pt-4 align-bottom pb-1">OFFICE/DEPARTMENT:</td>
-                    <td colSpan={5} className="border-b border-black pt-4 align-bottom">
-                      <div className="text-left font-normal px-2 leading-none mb-3">{profile.hostEstablishment}</div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* Main Table with BLUE Header */}
-            <div className="border border-black flex-col mb-4 shrink-0 overflow-hidden">
-              <table className="w-full border-collapse border-none text-[11px] table-fixed">
-                <thead>
-                  <tr className="bg-[#1e3a8a] text-white h-10">
-                    <th className="border border-black p-1 w-[12%] text-center align-middle font-bold uppercase leading-tight">DATE COVERED</th>
-                    <th className="border border-black p-1 w-[35%] text-center align-middle font-bold uppercase leading-tight">ACCOMPLISHMENT</th>
-                    <th className="border border-black p-1 w-[22%] text-center align-middle font-bold uppercase leading-tight">PROBLEMS ENCOUNTERED</th>
-                    <th className="border border-black p-1 w-[20%] text-center align-middle font-bold uppercase leading-tight">ACTION TAKEN</th>
-                    <th className="border border-black p-1 w-[11%] text-center align-middle font-bold uppercase leading-tight">REMARKS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthReport ? (
-                    <tr className="border-b border-black h-12">
-                      <td className="border border-black p-2 text-center align-top font-bold bg-white leading-relaxed">
-                        {format(monthStart, 'MMM. d')} - {format(monthEnd, 'MMM. d, yyyy')}
-                      </td>
-                      <td className="border border-black p-2 align-top whitespace-pre-wrap leading-[32px] font-normal" style={linedPaperStyle}>
-                        {monthReport.accomplishment || monthReport.narrative}
-                      </td>
-                      <td className="border border-black p-2 align-top whitespace-pre-wrap leading-[32px] font-normal" style={linedPaperStyle}>
-                        {monthReport.problemsEncountered}
-                      </td>
-                      <td className="border border-black p-2 align-top whitespace-pre-wrap leading-[32px] font-normal" style={linedPaperStyle}>
-                        {monthReport.actionTaken}
-                      </td>
-                      <td className="border border-black p-2 align-top whitespace-pre-wrap leading-[32px] font-normal" style={linedPaperStyle}>
-                        {monthReport.remarks}
-                      </td>
-                    </tr>
-                  ) : monthReports.map((report, idx) => {
-                    const wsStr = format(parseISO(report.weekStartDate), 'MMM. d');
-                    const weStr = format(parseISO(report.weekEndDate), idx === monthReports.length - 1 ? 'MMM. d, yyyy' : 'MMM. d');
-                    return (
-                      <tr key={report.id} className="border-b border-black h-12">
-                        <td className="border border-black p-2 text-center align-top font-bold bg-white leading-relaxed">
-                          <div>{getWeekOrdinal(idx + 1)}</div>
-                          <div className="mt-1 font-normal text-[10px]">({wsStr} to {weStr})</div>
-                        </td>
-                        <td className="border border-black p-2 align-top whitespace-pre-wrap leading-[32px] font-normal" style={linedPaperStyle}>
-                          {report.accomplishment || report.narrative}
-                        </td>
-                        <td className="border border-black p-2 align-top whitespace-pre-wrap leading-[32px] font-normal" style={linedPaperStyle}>
-                          {report.problemsEncountered}
-                        </td>
-                        <td className="border border-black p-2 align-top whitespace-pre-wrap leading-[32px] font-normal" style={linedPaperStyle}>
-                          {report.actionTaken}
-                        </td>
-                        <td className="border border-black p-2 align-top whitespace-pre-wrap leading-[32px] font-normal" style={linedPaperStyle}>
-                          {report.remarks}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Comments with horizontal lines */}
-            <div className="mt-2 mb-12 text-[10px] shrink-0">
-              <div className="mb-2 uppercase font-bold">COMMENTS AND SUGGESTIONS:</div>
-              <div className="border-b border-black min-h-[24px] mb-1"></div>
-              <div className="border-b border-black min-h-[24px] mb-1"></div>
-              <div className="border-b border-black min-h-[24px] mb-1"></div>
-              <div className="border-b border-black min-h-[24px]"></div>
-            </div>
-
-            {/* Signatures Area - absolute stability for PDF */}
-            <div className="mt-auto shrink-0 pb-4">
-              <table className="w-full border-collapse">
-                <tbody>
-                  <tr>
-                    <td className="w-[45%] text-center align-bottom">
-                      <div className="text-[10px] font-bold mb-4 text-left">SUBMITTED:</div>
-                      <div className="relative h-16 flex items-end justify-center mb-1">
-                        {profile.signatureImageUrl && (
-                          <img 
-                            src={profile.signatureImageUrl} 
-                            className="absolute bottom-0 h-16 w-auto object-contain" 
-                            alt="Signature"
-                            referrerPolicy="no-referrer"
-                          />
-                        )}
-                        <div className="font-normal text-sm leading-none uppercase z-10">{profile.name}</div>
-                      </div>
-                      <div className="border-b border-black w-full"></div>
-                      <div className="text-[10px] uppercase pt-1">Intern/Trainee</div>
-                    </td>
-                    <td className="w-[10%]"></td>
-                    <td className="w-[45%] text-center align-bottom">
-                      <div className="text-[10px] font-bold mb-10 uppercase text-left">ATTESTED:</div>
-                      <div className="font-normal text-sm mb-4 leading-none uppercase">{profile.headOffice}</div>
-                      <div className="border-b border-black w-full"></div>
-                      <div className="text-[10px] uppercase pt-1">On-Site Supervisor</div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            
-            <div className="html2pdf__page-break" />
-          </div>
-        );
-      })}
-    </>
-  );
-}
-function WeeklyJournalTemplate({ profile, weeklyReports }: { profile: any, weeklyReports: any[] }) {
-  if (!weeklyReports || weeklyReports.length === 0) return <div className="text-muted-foreground p-8 text-center bg-white border border-dashed border-gray-300 rounded-lg w-full max-w-md mx-auto print:hidden">No weekly reports available. Please generate them in the Weekly Reports tab.</div>;
-
-  // Sort chronologically ascending
-  const sortedReports = [...weeklyReports].sort((a, b) => new Date(a.weekStartDate).getTime() - new Date(b.weekStartDate).getTime());
-  
-  const chunkArray = (arr: any[], size: number) => {
-    const chunked = [];
-    for (let i = 0; i < arr.length; i += size) {
-      chunked.push(arr.slice(i, i + size));
-    }
-    return chunked;
-  };
-
-  const getWeekOrdinal = (n: number) => {
-    const s = ["th", "st", "nd", "rd"];
-    const v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]) + " Week";
-  };
-
-  // Group 1 week per layout page to match strictly the blank PDF template
-  return (
-    <>
-      {sortedReports.map((report, chunkIndex) => {
-        const startStr = format(parseISO(report.weekStartDate), 'MMM d, yyyy');
-        const endStr = format(parseISO(report.weekEndDate), 'MMM d, yyyy');
-        const globalIndex = chunkIndex + 1;
-        
-        return (
-          <div 
-            key={`weekly-page-${chunkIndex}`} 
-            className="bg-white px-10 pt-4 pb-10 text-black flex flex-col html2pdf__page-break" 
-            style={{ 
-              fontFamily: '"Times New Roman", Times, serif', 
-              pageBreakAfter: 'always',
-              breakAfter: 'page',
-              width: '1248px',
-              minHeight: '816px',
-              height: 'auto',
-              boxSizing: 'border-box',
-              position: 'relative'
-            }}
-          >
-            <table className="w-full border-collapse border border-black mb-2 text-sm shrink-0">
-              <tbody>
-                <tr>
-                  <td className="border border-black p-2 w-[12%] text-center align-middle">
-                    <img 
-                      src={`${window.location.origin}/logo-capsu.jpg`}
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      alt="Capiz State University Logo" 
-                      className="w-20 h-20 mx-auto object-contain"
-                    />
-                  </td>
-                  <td className="border border-black p-0 w-[63%] align-top">
-                    <table className="w-full h-full border-none">
-                      <tbody>
-                        <tr>
-                          <td className="border-b border-black p-1 align-top h-[50%]">
-                            <div className="text-[10px]">Document Type:</div>
-                            <div className="text-center font-bold text-sm">FORM</div>
-                            <div className="text-center text-[10px]">ISO 9001:2015</div>
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="p-1 align-top h-[50%]">
-                            <div className="text-[10px] float-left">Document Title:</div>
-                            <div className="text-center font-bold text-sm mt-1 uppercase">STUDENT'S WEEKLY JOURNAL REPORT</div>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                  <td className="border border-black p-0 w-[25%] text-[10px]">
-                    <table className="w-full h-full border-none">
-                      <tbody>
-                        <tr>
-                          <td className="border-b border-r border-black p-1 w-1/2">Document Code</td>
-                          <td className="border-b border-black p-1 w-1/2 font-bold text-center">EAL-F01</td>
-                        </tr>
-                        <tr>
-                          <td className="border-b border-r border-black p-1">Revision No.</td>
-                          <td className="border-b border-black p-1 font-bold text-center">00</td>
-                        </tr>
-                        <tr>
-                          <td className="border-b border-r border-black p-1">Effective Date</td>
-                          <td className="border-b border-black p-1 font-bold text-center">October 07, 2019</td>
-                        </tr>
-                        <tr>
-                          <td className="border-r border-black p-1">Page</td>
-                          <td className="p-1 font-bold text-center">1 of 1</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-          {/* Student Info Section - table-based with efficient spacing */}
-          <div className="mb-4 text-xs uppercase font-bold shrink-0">
-            <table className="w-full border-collapse">
-              <tbody>
-                <tr className="h-8">
-                  <td className="whitespace-nowrap w-[1%] pr-2 align-bottom pb-1">NAME:</td>
-                  <td className="border-b border-black align-bottom">
-                    <div className="text-center font-normal px-2 leading-none mb-2">{profile.name}</div>
-                  </td>
-                  <td className="whitespace-nowrap w-[1%] px-4 text-right align-bottom pb-1">COURSE & YEAR:</td>
-                  <td className="border-b border-black w-48 align-bottom">
-                    <div className="text-center font-normal px-2 leading-none mb-2">{profile.courseAndYear}</div>
-                  </td>
-                  <td className="whitespace-nowrap w-[1%] px-4 text-right align-bottom pb-1">MAJOR:</td>
-                  <td className="border-b border-black w-48 align-bottom">
-                    <div className="text-center font-normal px-2 leading-none mb-2">{profile.major}</div>
-                  </td>
-                </tr>
-                <tr className="h-8">
-                  <td className="whitespace-nowrap w-[1%] pr-2 pt-2 align-bottom pb-1">OFFICE/DEPARTMENT:</td>
-                  <td colSpan={5} className="border-b border-black pt-2 align-bottom">
-                    <div className="text-left font-normal px-2 leading-none mb-2">{profile.hostEstablishment}</div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex flex-col flex-1 my-1 border border-black min-h-[280px]">
-            <table className="w-full border-collapse text-xs table-fixed flex-1 h-full">
-              <thead>
-                <tr className="h-[24px]">
-                  <th className="border-b border-r border-black p-1 w-[12%] text-center align-middle font-bold">DATE<br/>COVERED</th>
-                  <th className="border-b border-r border-black p-1 w-[33%] text-center align-middle font-bold">ACCOMPLISHMENT</th>
-                  <th className="border-b border-r border-black p-1 w-[25%] text-center align-middle font-bold">PROBLEMS ENCOUNTERED</th>
-                  <th className="border-b border-r border-black p-1 w-[20%] text-center align-middle font-bold">ACTION TAKEN</th>
-                  <th className="border-b border-black p-1 w-[10%] text-center align-middle font-bold">REMARKS</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="border-r border-black p-2 text-center align-top whitespace-pre-wrap">
-                    <div className="font-bold">{getWeekOrdinal(globalIndex)}</div>
-                    <div className="mt-1 leading-tight">({startStr}<br/>to<br/>{endStr})</div>
-                  </td>
-                  <td className="border-r border-black p-2 align-top whitespace-pre-wrap leading-[32px]" style={linedPaperStyle}>
-                    {report.accomplishment}
-                  </td>
-                  <td className="border-r border-black p-2 align-top whitespace-pre-wrap leading-[32px]" style={linedPaperStyle}>
-                    {report.problemsEncountered}
-                  </td>
-                  <td className="border-r border-black p-2 align-top whitespace-pre-wrap leading-[32px]" style={linedPaperStyle}>
-                    {report.actionTaken}
-                  </td>
-                  <td className="p-2 align-top whitespace-pre-wrap leading-[32px]" style={linedPaperStyle}>
-                    {report.remarks}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-2 mb-2 text-xs shrink-0">
-            <div className="mb-1 uppercase font-bold">COMMENTS AND SUGGESTIONS:</div>
-            <div className="border-b border-black min-h-[1.2rem] whitespace-pre-wrap mb-1 leading-5">
-              {' '}
-            </div>
-            <div className="border-b border-black min-h-[1.2rem] whitespace-pre-wrap mb-1 leading-5">
-              {' '}
-            </div>
-            <div className="border-b border-black min-h-[1.2rem] whitespace-pre-wrap leading-5">
-              {' '}
-            </div>
-          </div>
-
-          <table className="w-full mt-auto border-none text-[10px] font-bold shrink-0 pb-4">
-            <tbody>
-              <tr>
-                <td className="w-[45%] border-none align-bottom text-center">
-                  <div className="mb-4 text-left uppercase">SUBMITTED:</div>
-                  <div className="relative h-16 flex items-end justify-center mb-1">
-                    {profile.signatureImageUrl && (
-                      <img 
-                        src={profile.signatureImageUrl} 
-                        className="absolute bottom-0 h-16 w-auto object-contain" 
-                        alt="Signature"
-                        referrerPolicy="no-referrer"
-                      />
-                    )}
-                    <div className="font-normal text-sm leading-none uppercase z-10">{profile.name}</div>
-                  </div>
-                  <div className="border-b border-black w-full"></div>
-                  <div className="font-normal uppercase pt-1 px-1">Intern/Trainee</div>
-                </td>
-                <td className="w-[10%] border-none"></td>
-                <td className="w-[45%] border-none align-bottom text-center">
-                  <div className="mb-4 text-left uppercase">ATTESTED:</div>
-                  <div className="h-16 flex items-end justify-center mb-1">
-                    <div className="font-normal text-sm leading-none uppercase">{profile.headOffice}</div>
-                  </div>
-                  <div className="border-b border-black w-full"></div>
-                  <div className="font-normal uppercase pt-1 px-1">On-Site Supervisor</div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          
-          <div style={{ pageBreakBefore: 'always' }} />
-        </div>
-      )})}
-    </>
   );
 }

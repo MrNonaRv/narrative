@@ -1,7 +1,35 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
+import { get, set, del } from 'idb-keyval';
 import { AppState } from './types';
+
+const storageWrapper: StateStorage = {
+  getItem: async (name: string): Promise<string | null> => {
+    let val = await get(name);
+    if (!val) {
+      val = localStorage.getItem(name);
+      if (val) {
+        try {
+          await set(name, val);
+        } catch (e) {
+          console.error("Failed to migrate data from localStorage to IndexedDB:", e);
+        }
+      }
+    }
+    return val || null;
+  },
+  setItem: async (name: string, value: string): Promise<void> => {
+    try {
+      await set(name, value);
+    } catch (e: any) {
+      console.error("IndexedDB setItem error:", e);
+    }
+  },
+  removeItem: async (name: string): Promise<void> => {
+    await del(name);
+  },
+};
 
 const defaultProfile = {
   name: '',
@@ -23,12 +51,38 @@ const defaultProfile = {
   documentationImages: [],
 };
 
+const defaultEvaluationData = {
+  college: '',
+  major: '',
+  telNo: '',
+  employability: '',
+  allowance: '',
+  telephoneNo: '',
+  employedCompany: '',
+  department: '',
+  position: '',
+  otherDept: '',
+  rater: '',
+  dateOfEvaluation: '',
+  dateOfLastEvaluation: '',
+  duties: '',
+  strongestArea: '',
+  improvedMost: '',
+  needImprovement: '',
+  challengingSituation: '',
+  overcameChallenge: '',
+  learnedExperience: '',
+  qualifiedLinkage: '',
+  recommendation: ''
+};
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       currentAccountId: uuidv4(),
       savedAccounts: [],
       profile: { ...defaultProfile },
+      evaluationData: { ...defaultEvaluationData },
       entries: [],
       weeklyReports: [],
       monthlyReports: [],
@@ -38,6 +92,11 @@ export const useAppStore = create<AppState>()(
           const newState = { profile: { ...state.profile, ...profile } };
           return newState;
         }),
+
+      setEvaluationData: (data) =>
+        set((state) => ({
+          evaluationData: { ...state.evaluationData, ...data },
+        })),
       
       addEntry: (entry) =>
         set((state) => ({
@@ -109,6 +168,7 @@ export const useAppStore = create<AppState>()(
       clearAllData: () =>
         set(() => ({
           profile: { ...defaultProfile },
+          evaluationData: { ...defaultEvaluationData },
           entries: [],
           weeklyReports: [],
           monthlyReports: [],
@@ -121,6 +181,7 @@ export const useAppStore = create<AppState>()(
           const currentAccountSnapshot = {
             id: state.currentAccountId || uuidv4(),
             profile: state.profile,
+            evaluationData: state.evaluationData,
             entries: state.entries,
             weeklyReports: state.weeklyReports,
             monthlyReports: state.monthlyReports
@@ -145,6 +206,7 @@ export const useAppStore = create<AppState>()(
           const currentAccountSnapshot = {
             id: state.currentAccountId || uuidv4(),
             profile: state.profile,
+            evaluationData: state.evaluationData,
             entries: state.entries,
             weeklyReports: state.weeklyReports,
             monthlyReports: state.monthlyReports
@@ -165,6 +227,7 @@ export const useAppStore = create<AppState>()(
             savedAccounts: newSaved,
             currentAccountId: targetAccount.id,
             profile: { ...defaultProfile, ...(targetAccount.profile || {}) },
+            evaluationData: { ...defaultEvaluationData, ...(targetAccount.evaluationData || {}) },
             entries: targetAccount.entries || [],
             weeklyReports: targetAccount.weeklyReports || [],
             monthlyReports: targetAccount.monthlyReports || []
@@ -177,6 +240,7 @@ export const useAppStore = create<AppState>()(
           const currentAccountSnapshot = {
             id: state.currentAccountId || uuidv4(),
             profile: state.profile,
+            evaluationData: state.evaluationData,
             entries: state.entries,
             weeklyReports: state.weeklyReports,
             monthlyReports: state.monthlyReports
@@ -202,6 +266,7 @@ export const useAppStore = create<AppState>()(
           newSaved.push({
             id: newAccountId,
             profile: newProfile,
+            evaluationData: { ...defaultEvaluationData },
             entries: [],
             weeklyReports: [],
             monthlyReports: []
@@ -211,6 +276,7 @@ export const useAppStore = create<AppState>()(
             savedAccounts: newSaved,
             currentAccountId: newAccountId,
             profile: newProfile,
+            evaluationData: { ...defaultEvaluationData },
             entries: [],
             weeklyReports: [],
             monthlyReports: []
@@ -224,6 +290,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'ojt-tracker-storage',
+      storage: createJSONStorage(() => storageWrapper),
     }
   )
 );

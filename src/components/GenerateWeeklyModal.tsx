@@ -80,7 +80,7 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
       
       Task:
       1. Analyze the daily entries provided.
-      2. Write a short, simple, and concise "Accomplishment" summary (bullet points or brief list) of tasks.
+      2. Write a short, simple, and concise "Accomplishment" summary as a single, cohesive paragraph summarizing the main tasks done during the week. Do not use bullet points or lists.
       3. Write a "Narrative Summary/Reflection" (paragraph form) summarizing the week's experience and what was learned.
       4. Write a short "Problems Encountered" summary BASED ON the accomplishments. If none are explicitly stated in the entries, deduce or invent a minor, realistic problem related to the tasks (e.g., software bug, minor delay, unfamiliarity with a process). Do NOT say "None".
       5. Write a short "Action Taken" summary describing how the problem was solved. Do NOT say "N/A".
@@ -99,13 +99,8 @@ export default function GenerateWeeklyModal({ isOpen, onClose }: GenerateWeeklyM
         "commentsAndSuggestions": "string"
       }`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json"
-        }
-      });
+      const { generateContentWithRetry } = await import('@/lib/gemini');
+      const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
 
       if (response.text) {
         const parsed = JSON.parse(response.text.replace(/```json/g, '').replace(/```/g, '').trim());

@@ -82,7 +82,8 @@ export default function WeeklyReports() {
 
     const reportsMissingProblems = weeklyReports.filter(
       r => {
-        const hasAccomplishment = r.accomplishment && r.accomplishment.trim().length > 0;
+        const text = r.accomplishment || r.narrative || '';
+        const hasAccomplishment = text.trim().length > 0;
         return hasAccomplishment && (isMissing(r.problemsEncountered) || isMissing(r.actionTaken));
       }
     );
@@ -104,6 +105,10 @@ export default function WeeklyReports() {
 
     setIsBulkGeneratingProblems(true);
     setBulkProgress({ current: 0, total: reportsMissingProblems.length });
+    
+    // Yield to let React render the loading screen
+    await new Promise(res => setTimeout(res, 100));
+
     const updatedReportsList: any[] = [];
 
     try {
@@ -127,7 +132,7 @@ export default function WeeklyReports() {
         setBulkProgress({ current: i + 1, total: reportsMissingProblems.length });
         const prompt = `Based on the following weekly OJT accomplishments, generate a plausible "Problem Encountered" and the "Action Taken" to resolve it. Keep them brief and realistic for an internship. Use VERY SIMPLE, EASY-TO-UNDERSTAND English words. Do not use complicated words or fancy corporate jargon. If the accomplishment doesn't naturally suggest a problem, invent a minor typical one (e.g., software issue, confusion, clarification needed).
 
-Accomplishment: "${report.accomplishment}"
+Accomplishment: "${report.accomplishment || report.narrative || ''}"
 
 Return strictly in this JSON format without markdown:
 {
@@ -141,11 +146,16 @@ Return strictly in this JSON format without markdown:
           if (response?.text) {
             const parsed = cleanJson(response.text);
             
-            if (parsed.problemsEncountered || parsed.actionTaken || parsed['Problem Encountered']) {
+            const p = parsed.problemsEncountered || parsed.ProblemsEncountered || parsed['Problem Encountered'] || parsed.problem || parsed.problems || '';
+            const a = parsed.actionTaken || parsed.ActionTaken || parsed['Action Taken'] || parsed.action || parsed.actions || '';
+            const fallbackP = Object.values(parsed)[0] as string;
+            const fallbackA = Object.values(parsed)[1] as string;
+
+            if (p || a || Object.keys(parsed).length > 0) {
               updatedReportsList.push({
                 ...report,
-                problemsEncountered: parsed.problemsEncountered || parsed['Problem Encountered'] || parsed.problem || '',
-                actionTaken: parsed.actionTaken || parsed['Action Taken'] || parsed.action || ''
+                problemsEncountered: p || fallbackP || '',
+                actionTaken: a || fallbackA || ''
               });
             }
           }
@@ -171,7 +181,15 @@ Return strictly in this JSON format without markdown:
     }
   };
 
-  const sortedReports = [...weeklyReports].sort((a, b) => new Date(b.weekStartDate).getTime() - new Date(a.weekStartDate).getTime());
+  const sortedReports = [...(weeklyReports || [])]
+    .filter(r => r && r.weekStartDate)
+    .sort((a, b) => {
+      try {
+        return new Date(b.weekStartDate).getTime() - new Date(a.weekStartDate).getTime();
+      } catch (e) {
+        return 0;
+      }
+    });
 
   return (
     <div className="space-y-6">
@@ -297,7 +315,8 @@ Return strictly in this JSON format without markdown:
   "problemsEncountered": "description of the problem...",
   "actionTaken": "how it was resolved..."
 }`;
-                            const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt, config: { responseMimeType: "application/json" } });
+                            const { generateContentWithRetry } = await import('@/lib/gemini');
+                            const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
                             if (response.text) {
                               let parsed: any = {};
                               try {

@@ -7,8 +7,17 @@ import { format, parseISO, startOfWeek, endOfWeek, eachDayOfInterval } from 'dat
 export default function Dashboard() {
   const { profile, entries } = useAppStore();
 
-  const totalHours = entries.reduce((sum, entry) => sum + entry.workingHours, 0);
-  const progressPercentage = Math.min(100, Math.round((totalHours / (profile?.requiredHours || 486)) * 100)) || 0;
+  const totalHours = React.useMemo(() => 
+    entries.reduce((sum, entry) => sum + entry.workingHours, 0)
+  , [entries]);
+
+  const progressPercentage = React.useMemo(() => 
+    Math.min(100, Math.round((totalHours / (profile?.requiredHours || 486)) * 100)) || 0
+  , [totalHours, profile?.requiredHours]);
+
+  const avgHoursPerDay = React.useMemo(() => 
+    entries.length > 0 ? (totalHours / entries.length).toFixed(1) : '0'
+  , [totalHours, entries.length]);
 
   // Group entries by week for the chart
   const chartData = React.useMemo(() => {
@@ -128,7 +137,7 @@ export default function Dashboard() {
         </div>
         <div className="w-px h-10 bg-border"></div>
         <div className="text-center">
-          <div className="text-[28px] font-extrabold text-primary">{entries.length > 0 ? (totalHours / entries.length).toFixed(1) : 0}</div>
+          <div className="text-[28px] font-extrabold text-primary">{avgHoursPerDay}</div>
           <div className="text-xs text-muted-foreground mt-1">Avg Hours/Day</div>
         </div>
       </Card>

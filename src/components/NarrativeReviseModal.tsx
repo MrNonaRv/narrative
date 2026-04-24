@@ -88,20 +88,20 @@ Do NOT surround it with quotes, just return the raw rewritten text.
 Original text:
 ${currentText}`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt
-      });
+      const { generateContentWithRetry } = await import('@/lib/gemini');
+      const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3);
 
-      if (response.text) {
+      if (response?.text) {
         setFormData(prev => ({
           ...prev,
-          [field]: response.text
+          [field]: response.text.replace(/```markdown/gi, '').replace(/```/gi, '').trim()
         }));
+      } else {
+        throw new Error('AI could not generate a response.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Revise error:', err);
-      alert('Failed to revise the text. Please try again.');
+      alert(err?.message || 'Failed to revise the text. Please try again.');
     } finally {
       setIsRevising(false);
     }

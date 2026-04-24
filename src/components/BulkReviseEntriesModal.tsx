@@ -70,10 +70,8 @@ export default function BulkReviseEntriesModal({ isOpen, onClose }: BulkReviseEn
         }
       ]`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt
-      });
+      const { generateContentWithRetry } = await import('@/lib/gemini');
+      const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3);
 
       if (response.text) {
         const parsed = JSON.parse(response.text.replace(/```json/g, '').replace(/```/g, '').trim());

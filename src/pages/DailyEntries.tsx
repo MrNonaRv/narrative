@@ -123,24 +123,29 @@ export default function DailyEntries() {
         });
 
         if (allEntries.length > 0) {
-          // Deduplicate within the imported file first (keep the first one found for each date)
-          const uniqueImported = allEntries.reduce((acc: any[], current) => {
-            const x = acc.find(item => item.date === current.date);
-            if (!x) {
-              return acc.concat([current]);
-            } else {
-              return acc;
+          // Deduplicate within the imported file first using a map for O(N) performance
+          const seenInImport = new Map();
+          const uniqueImported: any[] = [];
+          
+          allEntries.forEach(entry => {
+            if (!seenInImport.has(entry.date)) {
+              seenInImport.set(entry.date, true);
+              uniqueImported.push(entry);
             }
-          }, []);
+          });
 
           let addedCount = 0;
           let skippedCount = 0;
           
+          // Create a Set of existing dates for O(1) lookup
+          const existingDates = new Set(entries.map(e => e.date));
+          
           uniqueImported.forEach(entry => {
-            const exists = entries.some(e => e.date === entry.date);
-            if (!exists) {
+            if (!existingDates.has(entry.date)) {
               addEntry(entry);
               addedCount++;
+              // Add to set to handle duplicates within the same import session if they appeared
+              existingDates.add(entry.date);
             } else {
               skippedCount++;
             }
@@ -238,6 +243,10 @@ export default function DailyEntries() {
 
     setIsBulkGeneratingProblems(true);
     setBulkProgress({ current: 0, total: entriesMissingProblems.length });
+    
+    // Yield to let React render the loading screen
+    await new Promise(res => setTimeout(res, 100));
+
     const updatedEntriesList: any[] = [];
 
     try {
@@ -275,11 +284,16 @@ Return strictly in this JSON format without markdown:
           if (response?.text) {
             const parsed = cleanJson(response.text);
             
-            if (parsed.problemsEncountered || parsed.actionTaken || parsed['Problem Encountered']) {
+            const p = parsed.problemsEncountered || parsed.ProblemsEncountered || parsed['Problem Encountered'] || parsed.problem || parsed.problems || '';
+            const a = parsed.actionTaken || parsed.ActionTaken || parsed['Action Taken'] || parsed.action || parsed.actions || '';
+            const fallbackP = Object.values(parsed)[0] as string;
+            const fallbackA = Object.values(parsed)[1] as string;
+
+            if (p || a || Object.keys(parsed).length > 0) {
               updatedEntriesList.push({
                 ...entry,
-                problemsEncountered: parsed.problemsEncountered || parsed['Problem Encountered'] || parsed.problem || '',
-                actionTaken: parsed.actionTaken || parsed['Action Taken'] || parsed.action || ''
+                problemsEncountered: p || fallbackP || '',
+                actionTaken: a || fallbackA || ''
               });
             }
           }
@@ -305,7 +319,15 @@ Return strictly in this JSON format without markdown:
     }
   };
 
-  const sortedEntries = [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const sortedEntries = [...(entries || [])]
+    .filter(e => e && e.date)
+    .sort((a, b) => {
+      try {
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+      } catch (e) {
+        return 0;
+      }
+    });
 
   return (
     <div className="space-y-6">
@@ -501,7 +523,8 @@ Return strictly in this JSON format without markdown:
   "problemsEncountered": "description of the problem...",
   "actionTaken": "how it was resolved..."
 }`;
-                          const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt, config: { responseMimeType: "application/json" } });
+                          const { generateContentWithRetry } = await import('@/lib/gemini');
+                          const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
                           if (response.text) {
                             let parsed: any = {};
                             try {

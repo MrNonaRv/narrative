@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card';
-import { Trash2, AlertTriangle, Users, UserPlus, Save, X } from 'lucide-react';
+import { Trash2, AlertTriangle, Users, UserPlus, X } from 'lucide-react';
 
 export default function Settings() {
   const { 
@@ -204,92 +204,6 @@ export default function Settings() {
           <div className="space-y-2">
             <Label htmlFor="requiredHours">Required OJT Hours</Label>
             <Input id="requiredHours" name="requiredHours" type="number" value={profile?.requiredHours || ''} onChange={handleChange} />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-            <div className="space-y-3">
-              <Label className="text-sm font-semibold">Student Signature</Label>
-              <div className="border-2 border-dashed border-muted rounded-xl p-4 flex flex-col items-center justify-center bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer relative group">
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  className="absolute inset-0 opacity-0 cursor-pointer" 
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onload = (evt) => {
-                        setProfile({ signatureImageUrl: evt.target?.result as string });
-                      };
-                      reader.readAsDataURL(file);
-                    }
-                  }}
-                />
-                {profile?.signatureImageUrl ? (
-                  <div className="relative group w-full flex justify-center">
-                    <img src={profile?.signatureImageUrl} alt="Signature" className="max-h-24 object-contain" />
-                    <Button 
-                      variant="destructive" 
-                      size="icon" 
-                      className="absolute -top-2 -right-2 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setProfile({ signatureImageUrl: '' });
-                      }}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-center py-2">
-                    <Save className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Click to upload signature</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label className="text-sm font-semibold">Certificate of Completion</Label>
-              <div className="border-2 border-dashed border-muted rounded-xl p-4 flex flex-col items-center justify-center bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer relative group">
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  className="absolute inset-0 opacity-0 cursor-pointer" 
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onload = (evt) => {
-                        setProfile({ certificateImageUrl: evt.target?.result as string });
-                      };
-                      reader.readAsDataURL(file);
-                    }
-                  }}
-                />
-                {profile?.certificateImageUrl ? (
-                  <div className="relative group w-full flex justify-center">
-                    <img src={profile?.certificateImageUrl} alt="Certificate" className="max-h-24 object-contain shadow-sm" />
-                    <Button 
-                      variant="destructive" 
-                      size="icon" 
-                      className="absolute -top-2 -right-2 h-6 w-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setProfile({ certificateImageUrl: '' });
-                      }}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-center py-2">
-                    <Save className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Click to upload certificate</span>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         </CardContent>
       </Card>

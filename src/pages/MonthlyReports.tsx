@@ -74,7 +74,8 @@ export default function MonthlyReports() {
 
     const reportsMissingProblems = monthlyReports.filter(
       r => {
-        const hasAccomplishment = (r.accomplishment || r.narrative) && (r.accomplishment || r.narrative).trim().length > 0;
+        const text = r.accomplishment || r.narrative || '';
+        const hasAccomplishment = text.trim().length > 0;
         return hasAccomplishment && (isMissing(r.problemsEncountered) || isMissing(r.actionTaken));
       }
     );
@@ -96,6 +97,10 @@ export default function MonthlyReports() {
 
     setIsBulkGeneratingProblems(true);
     setBulkProgress({ current: 0, total: reportsMissingProblems.length });
+    
+    // Yield to let React render the loading screen
+    await new Promise(res => setTimeout(res, 100));
+
     const updatedReportsList: any[] = [];
 
     try {
@@ -134,11 +139,16 @@ Return strictly in this JSON format without markdown:
           if (response?.text) {
             const parsed = cleanJson(response.text);
             
-            if (parsed.problemsEncountered || parsed.actionTaken || parsed['Problem Encountered']) {
+            const p = parsed.problemsEncountered || parsed.ProblemsEncountered || parsed['Problem Encountered'] || parsed.problem || parsed.problems || '';
+            const a = parsed.actionTaken || parsed.ActionTaken || parsed['Action Taken'] || parsed.action || parsed.actions || '';
+            const fallbackP = Object.values(parsed)[0] as string;
+            const fallbackA = Object.values(parsed)[1] as string;
+
+            if (p || a || Object.keys(parsed).length > 0) {
               updatedReportsList.push({
                 ...report,
-                problemsEncountered: parsed.problemsEncountered || parsed['Problem Encountered'] || parsed.problem || '',
-                actionTaken: parsed.actionTaken || parsed['Action Taken'] || parsed.action || ''
+                problemsEncountered: p || fallbackP || '',
+                actionTaken: a || fallbackA || ''
               });
             }
           }
@@ -164,7 +174,9 @@ Return strictly in this JSON format without markdown:
     }
   };
 
-  const sortedReports = [...monthlyReports].sort((a, b) => b.month.localeCompare(a.month));
+  const sortedReports = [...(monthlyReports || [])]
+    .filter(r => r && r.month)
+    .sort((a, b) => (b.month || '').localeCompare(a.month || ''));
 
   return (
     <div className="space-y-6">
@@ -268,7 +280,8 @@ Return strictly in this JSON format without markdown:
   "problemsEncountered": "description of the problem...",
   "actionTaken": "how it was resolved..."
 }`;
-                            const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt, config: { responseMimeType: "application/json" } });
+                            const { generateContentWithRetry } = await import('@/lib/gemini');
+                            const response = await generateContentWithRetry(ai, prompt, 'gemini-3-flash-preview', 3, { responseMimeType: "application/json" });
                             if (response.text) {
                               let parsed: any = {};
                               try {
@@ -364,7 +377,13 @@ Return strictly in this JSON format without markdown:
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <h3 className="font-semibold text-lg">
-                        Month of {format(parseISO(`${report.month}-01`), 'MMMM yyyy')}
+                        Month of {(() => {
+                          try {
+                            return format(parseISO(`${report.month}-01`), 'MMMM yyyy');
+                          } catch (e) {
+                            return report.month;
+                          }
+                        })()}
                       </h3>
                     </div>
                     <div className="flex space-x-2">

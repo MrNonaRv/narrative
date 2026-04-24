@@ -56,19 +56,48 @@ export interface MonthlyReport {
 export interface SavedAccount {
   id: string;
   profile: UserProfile;
+  evaluationData?: EvaluationData;
   entries: DailyEntry[];
   weeklyReports: WeeklyReport[];
   monthlyReports: MonthlyReport[];
+}
+
+export interface EvaluationData {
+  college: string;
+  major: string;
+  telNo: string;
+  contactPerson?: string;
+  employability: string;
+  allowance: string;
+  telephoneNo: string;
+  employedCompany: string;
+  department: string;
+  position: string;
+  otherDept: string;
+  rater: string;
+  dateOfEvaluation: string;
+  dateOfLastEvaluation: string;
+  duties: string;
+  strongestArea: string;
+  improvedMost: string;
+  needImprovement: string;
+  challengingSituation: string;
+  overcameChallenge: string;
+  learnedExperience: string;
+  qualifiedLinkage: string;
+  recommendation: string;
 }
 
 export interface AppState {
   currentAccountId: string;
   savedAccounts: SavedAccount[];
   profile: UserProfile;
+  evaluationData: EvaluationData;
   entries: DailyEntry[];
   weeklyReports: WeeklyReport[];
   monthlyReports: MonthlyReport[];
   setProfile: (profile: Partial<UserProfile>) => void;
+  setEvaluationData: (data: Partial<EvaluationData>) => void;
   addEntry: (entry: Omit<DailyEntry, 'id'>) => void;
   updateEntry: (id: string, entry: Partial<DailyEntry>) => void;
   deleteEntry: (id: string) => void;

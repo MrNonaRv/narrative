@@ -2,8 +2,8 @@ import { GoogleGenAI } from "@google/genai";
 
 export const GEMINI_MODEL = "gemini-3-flash-preview";
 
-export async function generateContentWithRetry(ai: any, prompt: string, modelName: string = GEMINI_MODEL, maxRetries = 3, config?: any) {
-  let delay = 1000;
+export async function generateContentWithRetry(ai: any, prompt: string, modelName: string = GEMINI_MODEL, maxRetries = 5, config?: any) {
+  let delay = 4000;
   for (let i = 0; i < maxRetries; i++) {
     try {
       const response = await ai.models.generateContent({
@@ -13,10 +13,15 @@ export async function generateContentWithRetry(ai: any, prompt: string, modelNam
       });
       return response;
     } catch (error: any) {
-      if (error.message?.includes("429") || error.status === 429 || error.message?.includes("RESOURCE_EXHAUSTED")) {
-        if (i === maxRetries - 1) throw error;
+      const isQuota = error?.message?.includes("exceeded your current quota") || error?.message?.includes("quota") || error?.status === "RESOURCE_EXHAUSTED";
+      const isRateLimit = error?.message?.includes("429") || error?.status === 429;
+      
+      if (isQuota || isRateLimit) {
+        if (i === maxRetries - 1) {
+          throw new Error("Gemini API Quota Exceeded. Please try again later or provide your own API key.");
+        }
         await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2;
+        delay += 5000;
         continue;
       }
       throw error;
